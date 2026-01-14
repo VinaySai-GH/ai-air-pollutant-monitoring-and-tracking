@@ -10,7 +10,7 @@ import ee
 import pandas as pd
 import numpy as np
 
-from src.utils.config import AREA_OF_INTEREST, RAW_DATA_DIR, GAS_UNITS
+from src.utils.gas_config import AREA_OF_INTEREST, RAW_DATA_DIR, GAS_UNITS
 
 
 # ===============================

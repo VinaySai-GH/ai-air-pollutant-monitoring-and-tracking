@@ -19,7 +19,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.data_collection.fetch_all_gases import fetch_all_sources
-from src.utils.config import RAW_DATA_DIR
+from src.utils.gas_config import RAW_DATA_DIR
 
 
 def main():

@@ -11,7 +11,7 @@ from src.data_collection.fetch_satellite_gee import (
     fetch_modis_aod,
 )
 from src.data_collection.fetch_waqi import fetch_waqi_data
-from src.utils.config import RAW_DATA_DIR, SUPPORTED_GASES
+from src.utils.gas_config import RAW_DATA_DIR, SUPPORTED_GASES
 
 
 def consolidate_dataframes(dfs):

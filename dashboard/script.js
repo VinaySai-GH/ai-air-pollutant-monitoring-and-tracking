@@ -1,44 +1,46 @@
 /**
- * Frontend JavaScript for Air Pollution Monitoring Dashboard
- * 
- * Features:
- * - Real-time data from OpenAQ API v3
- * - Heatmap visualization with color-coded pollution intensity
- * - Interactive map with pollution data points
- * - Multiple pollutant tracking (PM2.5, NO2, SO2, CO)
+ * Air Pollution Monitoring Dashboard - Frontend
+ * Gas-specific visualization with honest data representation
  */
 
 // Configuration
 const API_BASE_URL = 'http://localhost:8000';
 const MAPBOX_TOKEN = 'pk.eyJ1IjoidmluYXkzNDgxIiwiYSI6ImNtazlqeDNyYTA2bHUzZHNlazlmZWh0aWkifQ.tuf_24XQdW4Ryiml4FcgBg';
 
-// Map and data
-let map = null;
-let markers = [];
-let heatmapLayerId = 'pollution-heatmap';
-let hotspotsLayer = null;
-let hotspotsVisible = true;
-let currentParameter = 'pm25';
-let heatmapData = [];
+// Gas-specific scales for normalization
+const GAS_SCALES = {
+    'pm25': 250,
+    'pm10': 350,
+    'no2': 200,
+    'so2': 100,
+    'co': 10,
+    'o3': 200
+};
 
-// Initialize dashboard
+// State
+let map = null;
+let currentGas = 'pm25';
+let heatmapData = [];
+let coverageInfo = null;
+
+// Initialize
 document.addEventListener('DOMContentLoaded', function() {
     checkAPIStatus();
+    loadAvailableGases();
     
     if (MAPBOX_TOKEN && MAPBOX_TOKEN !== 'YOUR_MAPBOX_TOKEN') {
         initMap();
     } else {
         document.getElementById('map').innerHTML = 
-            '<div style="padding: 50px; text-align: center; color: #666;">⚠️ Please configure your Mapbox token</div>';
+            '<div style="padding: 50px; text-align: center; color: #666;">⚠️ Please configure Mapbox token in script.js</div>';
     }
     
     setupEventListeners();
-    loadHotspots();
-    loadRecentData();
+    loadAllData();
 });
 
 /**
- * Check API status
+ * Check API health
  */
 async function checkAPIStatus() {
     try {
@@ -47,7 +49,7 @@ async function checkAPIStatus() {
             document.getElementById('apiStatus').textContent = 'Online';
             document.getElementById('apiStatus').className = 'online';
         } else {
-            throw new Error('API returned error');
+            throw new Error('API error');
         }
     } catch (error) {
         document.getElementById('apiStatus').textContent = 'Offline';
@@ -57,22 +59,46 @@ async function checkAPIStatus() {
 }
 
 /**
- * Initialize Mapbox map
+ * Load available gases from API
+ */
+async function loadAvailableGases() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/gases`);
+        const gases = await response.json();
+        
+        const selector = document.getElementById('gasSelector');
+        selector.innerHTML = '';
+        
+        gases.forEach(gas => {
+            const option = document.createElement('option');
+            option.value = gas.parameter;
+            option.textContent = `${gas.name} (${gas.unit})${gas.available ? '' : ' - No data'}`;
+            option.disabled = !gas.available;
+            selector.appendChild(option);
+        });
+        
+        console.log('Available gases loaded:', gases);
+    } catch (error) {
+        console.error('Error loading gases:', error);
+    }
+}
+
+/**
+ * Initialize Mapbox map centered on India
  */
 function initMap() {
     map = new mapboxgl.Map({
         container: 'map',
-        style: 'mapbox://styles/mapbox/dark-v11',  // Dark style for better heatmap visibility
-        center: [77.2090, 28.6139],  // Delhi
-        zoom: 10,
+        style: 'mapbox://styles/mapbox/dark-v11',
+        center: [78.9629, 20.5937],  // Center of India
+        zoom: 4.5,  // Show all of India
         accessToken: MAPBOX_TOKEN
     });
     
     map.addControl(new mapboxgl.NavigationControl());
     
     map.on('load', function() {
-        console.log('Map loaded successfully');
-        // Heatmap will be added when data is loaded
+        console.log('Map loaded - centered on India');
     });
 }
 
@@ -80,147 +106,202 @@ function initMap() {
  * Setup event listeners
  */
 function setupEventListeners() {
+    // Gas selector
+    document.getElementById('gasSelector').addEventListener('change', function(e) {
+        currentGas = e.target.value;
+        console.log(`Gas changed to: ${currentGas}`);
+        loadAllData();
+    });
+    
+    // Refresh button
     document.getElementById('refreshBtn').addEventListener('click', function() {
-        loadHotspots();
-        loadRecentData();
+        loadAllData();
     });
     
-    document.getElementById('toggleHotspotsBtn').addEventListener('click', function() {
-        toggleHotspots();
+    // Toggle heatmap
+    document.getElementById('toggleHeatmapBtn').addEventListener('click', function() {
+        toggleHeatmap();
     });
     
+    // Prediction
     document.getElementById('predictBtn').addEventListener('click', function() {
         makePrediction();
     });
-    
-    // Pollutant selector (if exists)
-    const paramSelector = document.getElementById('parameterSelector');
-    if (paramSelector) {
-        paramSelector.addEventListener('change', function(e) {
-            currentParameter = e.target.value;
-            loadRecentData();
-        });
+}
+
+/**
+ * Load all data for current gas
+ */
+async function loadAllData() {
+    await loadCoverage();
+    await loadStatistics();
+    await loadHeatmapData();
+    await loadHotspots();
+}
+
+/**
+ * Load data coverage information
+ */
+async function loadCoverage() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/coverage?gas=${currentGas}`);
+        coverageInfo = await response.json();
+        
+        const coverageEl = document.getElementById('coverageStatus');
+        const qualityEl = document.getElementById('dataQuality');
+        
+        if (coverageInfo.coverage_quality === 'insufficient') {
+            coverageEl.textContent = `⚠️ Insufficient data for ${currentGas.toUpperCase()}`;
+            coverageEl.className = 'coverage-warning';
+            qualityEl.textContent = 'No analysis possible';
+        } else if (coverageInfo.coverage_quality === 'sparse') {
+            coverageEl.textContent = `⚠️ Limited coverage: ${coverageInfo.total_points} points`;
+            coverageEl.className = 'coverage-warning';
+            qualityEl.textContent = 'Use with caution';
+        } else {
+            coverageEl.textContent = `✓ ${coverageInfo.total_points} data points`;
+            coverageEl.className = 'coverage-good';
+            qualityEl.textContent = coverageInfo.coverage_quality;
+        }
+        
+        console.log('Coverage:', coverageInfo);
+    } catch (error) {
+        console.error('Error loading coverage:', error);
     }
 }
 
 /**
- * Load and display hotspots with color coding
+ * Load statistics
  */
-async function loadHotspots() {
-    const hotspotsListEl = document.getElementById('hotspotsList');
-    hotspotsListEl.innerHTML = '<p class="loading">Loading hotspots...</p>';
-    
+async function loadStatistics() {
     try {
-        const response = await fetch(`${API_BASE_URL}/hotspots`);
+        const response = await fetch(`${API_BASE_URL}/stats?gas=${currentGas}`);
+        const stats = await response.json();
         
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const hotspots = await response.json();
-        document.getElementById('hotspotCount').textContent = hotspots.length;
-        
-        if (hotspots.length === 0) {
-            hotspotsListEl.innerHTML = '<p class="loading">No hotspots found.</p>';
+        if (!stats.available) {
+            document.getElementById('avgValue').textContent = 'N/A';
+            document.getElementById('maxValue').textContent = 'N/A';
+            document.getElementById('stationCount').textContent = '0';
             return;
         }
         
-        // Display hotspots with color coding
-        hotspotsListEl.innerHTML = hotspots.map(hotspot => {
-            const bgColor = hotspot.color || '#dc3545';
+        // Update stat cards
+        document.getElementById('avgValue').textContent = stats.mean;
+        document.getElementById('avgValue').style.color = getColorForValue(currentGas, stats.mean);
+        
+        document.getElementById('maxValue').textContent = stats.max;
+        document.getElementById('maxValue').style.color = getColorForValue(currentGas, stats.max);
+        
+        document.getElementById('stationCount').textContent = stats.count;
+        
+        // Update labels
+        document.querySelectorAll('.gas-label').forEach(el => {
+            el.textContent = stats.name;
+        });
+        document.querySelectorAll('.gas-unit').forEach(el => {
+            el.textContent = stats.unit;
+        });
+        
+        console.log('Statistics:', stats);
+    } catch (error) {
+        console.error('Error loading statistics:', error);
+    }
+}
+
+/**
+ * Load heatmap data
+ */
+async function loadHeatmapData() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/data/recent?gas=${currentGas}&limit=500`);
+        const data = await response.json();
+        
+        if (!data || data.length === 0) {
+            console.warn(`No data for ${currentGas}`);
+            clearHeatmap();
+            return;
+        }
+        
+        heatmapData = data.map(point => ({
+            location: [point.longitude, point.latitude],
+            value: point.value,
+            color: point.color
+        }));
+        
+        if (map && map.loaded()) {
+            addHeatmapToMap(heatmapData);
+        } else if (map) {
+            map.on('load', function() {
+                addHeatmapToMap(heatmapData);
+            });
+        }
+        
+        console.log(`Heatmap data loaded: ${heatmapData.length} points`);
+    } catch (error) {
+        console.error('Error loading heatmap data:', error);
+    }
+}
+
+/**
+ * Load hotspots
+ */
+async function loadHotspots() {
+    const hotspotsEl = document.getElementById('hotspotsList');
+    hotspotsEl.innerHTML = '<p class="loading">Loading hotspots...</p>';
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/hotspots?gas=${currentGas}`);
+        const hotspots = await response.json();
+        
+        document.getElementById('hotspotCount').textContent = hotspots.length;
+        
+        if (hotspots.length === 0) {
+            hotspotsEl.innerHTML = '<p class="loading">No hotspots detected for this gas.</p>';
+            return;
+        }
+        
+        hotspotsEl.innerHTML = hotspots.map((hotspot, idx) => {
             return `
-                <div class="hotspot-item" style="border-left-color: ${bgColor};">
+                <div class="hotspot-item" style="border-left-color: ${hotspot.color};">
                     <div class="hotspot-info">
                         <div class="hotspot-location">
-                            Lat: ${hotspot.latitude.toFixed(4)}, Lon: ${hotspot.longitude.toFixed(4)}
+                            #${idx + 1} · ${hotspot.latitude.toFixed(3)}°N, ${hotspot.longitude.toFixed(3)}°E
                         </div>
                         <div class="hotspot-details">
-                            ${hotspot.category || 'Unknown'} • Cluster: ${hotspot.cluster}
+                            ${hotspot.category.replace('_', ' ')} · ${hotspot.data_points} measurements
                         </div>
                     </div>
-                    <div class="hotspot-pm25" style="color: ${bgColor};">
-                        ${hotspot.avg_pm25.toFixed(1)} µg/m³
+                    <div class="hotspot-value" style="color: ${hotspot.color};">
+                        ${hotspot.avg_value}
                     </div>
                 </div>
             `;
         }).join('');
         
+        console.log(`Hotspots loaded: ${hotspots.length}`);
     } catch (error) {
         console.error('Error loading hotspots:', error);
-        hotspotsListEl.innerHTML = '<p class="loading" style="color: #dc3545;">Error loading hotspots.</p>';
+        hotspotsEl.innerHTML = '<p class="loading" style="color: #dc3545;">Error loading hotspots</p>';
     }
 }
 
 /**
- * Load recent data and create heatmap
- */
-async function loadRecentData() {
-    try {
-        const response = await fetch(`${API_BASE_URL}/data/recent?limit=200&parameter=${currentParameter}`);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        
-        if (data && data.length > 0) {
-            // Calculate average PM2.5
-            const values = data.map(d => d.value).filter(v => v !== null && v !== undefined);
-            
-            if (values.length > 0) {
-                const avgPM25 = values.reduce((a, b) => a + b, 0) / values.length;
-                const avgEl = document.getElementById('avgPM25');
-                avgEl.textContent = avgPM25.toFixed(1);
-                
-                // Color code the average value
-                const avgColor = data[0].color || '#667eea';
-                avgEl.style.color = avgColor;
-            }
-            
-            // Update station count
-            const uniqueStations = new Set(data.map(d => d.location || `${d.latitude}-${d.longitude}`));
-            document.getElementById('stationCount').textContent = uniqueStations.size;
-            
-            // Prepare heatmap data
-            heatmapData = data.map(point => ({
-                location: [point.longitude, point.latitude],
-                value: point.value || 0,
-                color: point.color || '#667eea'
-            }));
-            
-            // Add heatmap to map
-            if (map && map.loaded()) {
-                addHeatmapToMap(heatmapData);
-            } else if (map) {
-                map.on('load', function() {
-                    addHeatmapToMap(heatmapData);
-                });
-            }
-        }
-        
-    } catch (error) {
-        console.error('Error loading recent data:', error);
-    }
-}
-
-/**
- * Add heatmap layer to Mapbox map
+ * Add heatmap to Mapbox
  */
 function addHeatmapToMap(dataPoints) {
     if (!map || !map.loaded() || dataPoints.length === 0) {
         return;
     }
     
-    // Remove existing heatmap layer if it exists
-    if (map.getLayer(heatmapLayerId)) {
-        map.removeLayer(heatmapLayerId);
-    }
-    if (map.getSource(heatmapLayerId)) {
-        map.removeSource(heatmapLayerId);
-    }
+    const layerId = 'pollution-heatmap';
+    const circleLayerId = 'pollution-circles';
     
-    // Prepare GeoJSON data for heatmap
+    // Remove existing layers
+    if (map.getLayer(circleLayerId)) map.removeLayer(circleLayerId);
+    if (map.getLayer(layerId)) map.removeLayer(layerId);
+    if (map.getSource(layerId)) map.removeSource(layerId);
+    
+    // Prepare GeoJSON
     const geojsonData = {
         type: 'FeatureCollection',
         features: dataPoints.map(point => ({
@@ -231,25 +312,24 @@ function addHeatmapToMap(dataPoints) {
             },
             properties: {
                 value: point.value,
-                intensity: normalizeValue(point.value)  // Normalize value for heatmap intensity
+                intensity: normalizeValue(point.value, currentGas)
             }
         }))
     };
     
     // Add source
-    map.addSource(heatmapLayerId, {
+    map.addSource(layerId, {
         type: 'geojson',
         data: geojsonData
     });
     
     // Add heatmap layer
     map.addLayer({
-        id: heatmapLayerId,
+        id: layerId,
         type: 'heatmap',
-        source: heatmapLayerId,
-        maxzoom: 15,
+        source: layerId,
+        maxzoom: 12,
         paint: {
-            // Increase the heatmap weight based on value
             'heatmap-weight': [
                 'interpolate',
                 ['linear'],
@@ -257,125 +337,141 @@ function addHeatmapToMap(dataPoints) {
                 0, 0,
                 1, 1
             ],
-            // Increase the heatmap color weight by zoom level
             'heatmap-intensity': [
                 'interpolate',
                 ['linear'],
                 ['zoom'],
                 0, 1,
-                9, 3,
-                15, 5
+                9, 3
             ],
-            // Color gradient for heatmap
             'heatmap-color': [
                 'interpolate',
                 ['linear'],
-                ['get', 'intensity'],
-                0, 'rgba(0, 228, 0, 0)',      // Green (Good) - transparent
-                0.2, 'rgba(255, 255, 0, 0.5)', // Yellow (Moderate)
-                0.4, 'rgba(255, 126, 0, 0.7)', // Orange (Unhealthy for Sensitive)
-                0.6, 'rgba(255, 0, 0, 0.8)',   // Red (Unhealthy)
-                0.8, 'rgba(143, 63, 151, 0.9)', // Purple (Very Unhealthy)
-                1, 'rgba(126, 0, 35, 1)'       // Dark Red (Hazardous)
+                ['heatmap-density'],
+                0, 'rgba(0, 0, 255, 0)',
+                0.2, 'rgba(0, 228, 0, 0.5)',
+                0.4, 'rgba(255, 255, 0, 0.7)',
+                0.6, 'rgba(255, 126, 0, 0.8)',
+                0.8, 'rgba(255, 0, 0, 0.9)',
+                1, 'rgba(126, 0, 35, 1)'
             ],
-            // Adjust the heatmap radius by zoom level
             'heatmap-radius': [
                 'interpolate',
                 ['linear'],
                 ['zoom'],
                 0, 2,
-                9, 20,
-                15, 30
+                9, 20
             ],
-            // Transition from heatmap to circle layer by zoom level
             'heatmap-opacity': [
                 'interpolate',
                 ['linear'],
                 ['zoom'],
                 7, 1,
-                9, 0.8
+                9, 0.5
             ]
         }
     });
     
-    // Add circle layer for higher zoom levels
-    const circleLayerId = heatmapLayerId + '-circles';
-    if (!map.getLayer(circleLayerId)) {
-        map.addLayer({
-            id: circleLayerId,
-            type: 'circle',
-            source: heatmapLayerId,
-            minzoom: 9,
-            paint: {
-                'circle-radius': [
-                    'interpolate',
-                    ['linear'],
-                    ['get', 'value'],
-                    0, 4,
-                    100, 8,
-                    200, 12,
-                    300, 16
-                ],
-                'circle-color': [
-                    'interpolate',
-                    ['linear'],
-                    ['get', 'value'],
-                    0, '#00E400',      // Green
-                    12, '#FFFF00',     // Yellow
-                    35, '#FF7E00',     // Orange
-                    55, '#FF0000',     // Red
-                    150, '#8F3F97',    // Purple
-                    250, '#7E0023'     // Dark Red
-                ],
-                'circle-stroke-width': 1,
-                'circle-stroke-color': '#fff',
-                'circle-opacity': 0.8
-            }
-        });
-    }
+    // Add circle layer for high zoom
+    map.addLayer({
+        id: circleLayerId,
+        type: 'circle',
+        source: layerId,
+        minzoom: 8,
+        paint: {
+            'circle-radius': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                8, 4,
+                12, 12
+            ],
+            'circle-color': [
+                'interpolate',
+                ['linear'],
+                ['get', 'value'],
+                0, '#00E400',
+                GAS_SCALES[currentGas] * 0.2, '#FFFF00',
+                GAS_SCALES[currentGas] * 0.5, '#FF7E00',
+                GAS_SCALES[currentGas] * 0.8, '#FF0000',
+                GAS_SCALES[currentGas], '#7E0023'
+            ],
+            'circle-stroke-width': 1,
+            'circle-stroke-color': '#fff',
+            'circle-opacity': 0.8
+        }
+    });
     
-    console.log(`Heatmap added with ${dataPoints.length} data points`);
+    console.log(`Heatmap rendered: ${dataPoints.length} points for ${currentGas}`);
 }
 
 /**
- * Normalize pollution value to 0-1 range for heatmap intensity
+ * Clear heatmap
  */
-function normalizeValue(value) {
-    // Normalize PM2.5 values (0-300 µg/m³ range)
-    // Adjust these ranges based on your data
-    const maxValue = 300;
-    return Math.min(value / maxValue, 1);
+function clearHeatmap() {
+    if (!map || !map.loaded()) return;
+    
+    const layerId = 'pollution-heatmap';
+    const circleLayerId = 'pollution-circles';
+    
+    if (map.getLayer(circleLayerId)) map.removeLayer(circleLayerId);
+    if (map.getLayer(layerId)) map.removeLayer(layerId);
+    if (map.getSource(layerId)) map.removeSource(layerId);
 }
 
 /**
- * Toggle hotspots visibility
+ * Toggle heatmap visibility
  */
-function toggleHotspots() {
-    hotspotsVisible = !hotspotsVisible;
-    if (map) {
-        const layerId = heatmapLayerId;
-        if (map.getLayer(layerId)) {
-            const visibility = hotspotsVisible ? 'visible' : 'none';
-            map.setLayoutProperty(layerId, 'visibility', visibility);
-            const circleLayerId = layerId + '-circles';
-            if (map.getLayer(circleLayerId)) {
-                map.setLayoutProperty(circleLayerId, 'visibility', visibility);
-            }
+function toggleHeatmap() {
+    if (!map || !map.loaded()) return;
+    
+    const layerId = 'pollution-heatmap';
+    const circleLayerId = 'pollution-circles';
+    
+    if (map.getLayer(layerId)) {
+        const visibility = map.getLayoutProperty(layerId, 'visibility');
+        const newVisibility = visibility === 'visible' ? 'none' : 'visible';
+        
+        map.setLayoutProperty(layerId, 'visibility', newVisibility);
+        if (map.getLayer(circleLayerId)) {
+            map.setLayoutProperty(circleLayerId, 'visibility', newVisibility);
         }
     }
 }
 
 /**
- * Make PM2.5 prediction
+ * Normalize value for heatmap (gas-specific)
+ */
+function normalizeValue(value, gas) {
+    const maxScale = GAS_SCALES[gas] || 250;
+    return Math.min(value / maxScale, 1);
+}
+
+/**
+ * Get color for value (gas-specific)
+ */
+function getColorForValue(gas, value) {
+    const config = GAS_SCALES[gas] || 250;
+    
+    if (value <= config * 0.2) return '#00E400';
+    if (value <= config * 0.4) return '#FFFF00';
+    if (value <= config * 0.6) return '#FF7E00';
+    if (value <= config * 0.8) return '#FF0000';
+    return '#7E0023';
+}
+
+/**
+ * Make prediction
  */
 async function makePrediction() {
-    const latitude = parseFloat(document.getElementById('latitude').value);
-    const longitude = parseFloat(document.getElementById('longitude').value);
+    const lat = parseFloat(document.getElementById('latitude').value);
+    const lon = parseFloat(document.getElementById('longitude').value);
     const resultEl = document.getElementById('predictionResult');
     
-    if (!latitude || !longitude) {
-        resultEl.textContent = 'Please enter both latitude and longitude';
+    if (!lat || !lon) {
+        resultEl.textContent = 'Please enter valid coordinates';
         resultEl.className = 'prediction-result error';
+        resultEl.style.display = 'block';
         return;
     }
     
@@ -386,26 +482,26 @@ async function makePrediction() {
     try {
         const response = await fetch(`${API_BASE_URL}/predict`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                latitude: latitude,
-                longitude: longitude,
+                latitude: lat,
+                longitude: lon,
+                gas: currentGas
             })
         });
         
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
         const result = await response.json();
-        resultEl.textContent = `Predicted PM2.5: ${result.predicted_pm25.toFixed(2)} µg/m³`;
+        
+        resultEl.innerHTML = `
+            <strong>Predicted ${result.gas.toUpperCase()}:</strong> 
+            ${result.predicted_value} ${result.unit}<br>
+            <small>${result.message}</small>
+        `;
         resultEl.className = 'prediction-result success';
         
     } catch (error) {
-        console.error('Error making prediction:', error);
-        resultEl.textContent = 'Error making prediction. Check console for details.';
+        console.error('Prediction error:', error);
+        resultEl.textContent = 'Error making prediction';
         resultEl.className = 'prediction-result error';
     }
 }

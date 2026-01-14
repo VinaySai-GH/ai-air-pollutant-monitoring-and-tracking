@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Air Pollution Monitoring Dashboard</title>
+    <title>Air Pollution Monitoring - India</title>
     <link rel="stylesheet" href="style.css">
-    <!-- Mapbox GL JS -->
     <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
     <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
 </head>
@@ -13,45 +12,60 @@
     <div class="container">
         <header>
             <h1>🌍 Air Pollution Monitoring System</h1>
-            <p class="subtitle">Real-time Air Quality Index (AQI) and Pollution Hotspots</p>
+            <p class="subtitle">Real-time Air Quality Monitoring for India</p>
             <div class="header-features">
-                <span class="feature-badge">📊 AI-Powered Analytics</span>
-                <span class="feature-badge">🗺️ Interactive Maps</span>
-                <span class="feature-badge">⚡ Real-time Data</span>
+                <span class="feature-badge">📊 Gas-Specific Analysis</span>
+                <span class="feature-badge">🗺️ Interactive Heatmaps</span>
+                <span class="feature-badge">⚡ Grid-Based Hotspots</span>
             </div>
         </header>
 
         <main>
+            <!-- Gas Selector -->
+            <section class="gas-selector-section">
+                <h2>Select Pollutant</h2>
+                <div class="gas-selector-container">
+                    <label for="gasSelector">Select Pollutant</label>
+                    <select id="gasSelector" class="gas-selector">
+                        <option value="pm25">PM2.5 (µg/m³)</option>
+                    </select>
+                    <div class="coverage-info">
+                        <span id="coverageStatus" class="coverage-badge">Checking data...</span>
+                        <span class="data-quality">Quality: <span id="dataQuality">--</span></span>
+                    </div>
+                </div>
+            </section>
+
             <!-- Map Section -->
             <section class="map-section">
-                <h2>Pollution Map</h2>
-                <div class="map-legend" style="margin-bottom: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
-                    <strong style="margin-right: 15px;">Pollution Levels:</strong>
-                    <span style="display: inline-block; margin-right: 15px;">
-                        <span style="display: inline-block; width: 20px; height: 20px; background: #00E400; border-radius: 3px; vertical-align: middle; margin-right: 5px;"></span>
+                <h2>Pollution Heatmap</h2>
+                <div class="map-legend">
+                    <strong>Pollution Levels:</strong>
+                    <span class="legend-item">
+                        <span class="legend-color" style="background: #00E400;"></span>
                         Good
                     </span>
-                    <span style="display: inline-block; margin-right: 15px;">
-                        <span style="display: inline-block; width: 20px; height: 20px; background: #FFFF00; border-radius: 3px; vertical-align: middle; margin-right: 5px;"></span>
+                    <span class="legend-item">
+                        <span class="legend-color" style="background: #FFFF00;"></span>
                         Moderate
                     </span>
-                    <span style="display: inline-block; margin-right: 15px;">
-                        <span style="display: inline-block; width: 20px; height: 20px; background: #FF7E00; border-radius: 3px; vertical-align: middle; margin-right: 5px;"></span>
+                    <span class="legend-item">
+                        <span class="legend-color" style="background: #FF7E00;"></span>
                         Unhealthy
                     </span>
-                    <span style="display: inline-block; margin-right: 15px;">
-                        <span style="display: inline-block; width: 20px; height: 20px; background: #FF0000; border-radius: 3px; vertical-align: middle; margin-right: 5px;"></span>
+                    <span class="legend-item">
+                        <span class="legend-color" style="background: #FF0000;"></span>
                         Very Unhealthy
                     </span>
-                    <span style="display: inline-block;">
-                        <span style="display: inline-block; width: 20px; height: 20px; background: #7E0023; border-radius: 3px; vertical-align: middle; margin-right: 5px;"></span>
+                    <span class="legend-item">
+                        <span class="legend-color" style="background: #7E0023;"></span>
                         Hazardous
                     </span>
                 </div>
                 <div id="map" class="map-container"></div>
                 <div class="map-controls">
-                    <button id="refreshBtn" class="btn btn-primary">Refresh Data</button>
-                    <button id="toggleHotspotsBtn" class="btn btn-secondary">Toggle Hotspots</button>
+                    <button id="refreshBtn" class="btn btn-primary">🔄 Refresh Data</button>
+                    <button id="toggleHeatmapBtn" class="btn btn-secondary">👁️ Toggle Heatmap</button>
                 </div>
             </section>
 
@@ -60,19 +74,19 @@
                 <h2>Current Statistics</h2>
                 <div class="stats-grid">
                     <div class="stat-card">
-                        <div class="stat-label">Average PM2.5</div>
-                        <div class="stat-value" id="avgPM25">--</div>
-                        <div class="stat-unit">µg/m³</div>
+                        <div class="stat-label">Average <span class="gas-label">PM2.5</span></div>
+                        <div class="stat-value" id="avgValue">--</div>
+                        <div class="stat-unit"><span class="gas-unit">µg/m³</span></div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-label">Hotspots Detected</div>
-                        <div class="stat-value" id="hotspotCount">--</div>
-                        <div class="stat-unit">locations</div>
+                        <div class="stat-label">Maximum <span class="gas-label">PM2.5</span></div>
+                        <div class="stat-value" id="maxValue">--</div>
+                        <div class="stat-unit"><span class="gas-unit">µg/m³</span></div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-label">Total Stations</div>
+                        <div class="stat-label">Data Points</div>
                         <div class="stat-value" id="stationCount">--</div>
-                        <div class="stat-unit">monitoring points</div>
+                        <div class="stat-unit">measurements</div>
                     </div>
                 </div>
             </section>
@@ -80,32 +94,36 @@
             <!-- Hotspots List -->
             <section class="hotspots-section">
                 <h2>Pollution Hotspots</h2>
+                <div class="hotspots-info">
+                    <p>Top <span id="hotspotCount">--</span> high-concentration areas (5km grid cells)</p>
+                </div>
                 <div id="hotspotsList" class="hotspots-list">
-                    <p class="loading">Loading hotspots...</p>
+                    <p class="loading">Select a gas to view hotspots...</p>
                 </div>
             </section>
 
             <!-- Prediction Section -->
             <section class="prediction-section">
-                <h2>PM2.5 Prediction</h2>
+                <h2>Location Prediction</h2>
                 <div class="prediction-form">
                     <div class="form-group">
-                        <label for="latitude">Latitude:</label>
+                        <label for="latitude">Latitude (India: 8°N to 35°N):</label>
                         <input type="number" id="latitude" step="0.0001" placeholder="28.6139" />
                     </div>
                     <div class="form-group">
-                        <label for="longitude">Longitude:</label>
+                        <label for="longitude">Longitude (India: 68°E to 97°E):</label>
                         <input type="number" id="longitude" step="0.0001" placeholder="77.2090" />
                     </div>
-                    <button id="predictBtn" class="btn btn-primary">Predict PM2.5</button>
+                    <button id="predictBtn" class="btn btn-primary">🔮 Predict Value</button>
                     <div id="predictionResult" class="prediction-result"></div>
                 </div>
             </section>
         </main>
 
         <footer>
-            <p>AI-Based Air Pollution Monitoring System | NSS Project</p>
+            <p>Air Pollution Monitoring System for India | NSS Project</p>
             <p class="api-status">API Status: <span id="apiStatus">Checking...</span></p>
+            <p class="disclaimer">⚠️ Scientific Disclaimer: Data coverage may be limited. Always verify with official sources.</p>
         </footer>
     </div>
 

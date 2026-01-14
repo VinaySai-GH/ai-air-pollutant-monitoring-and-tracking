@@ -13,7 +13,7 @@ from typing import List, Dict, Optional
 import pandas as pd
 import requests
 
-from src.utils.config import WAQI_API_TOKEN, WAQI_BOUNDS, RAW_DATA_DIR, GAS_UNITS
+from src.utils.gas_config import WAQI_API_TOKEN, WAQI_BOUNDS, RAW_DATA_DIR, GAS_UNITS
 
 WAQI_MAP_BOUNDS_URL = "https://api.waqi.info/map/bounds/"
 WAQI_FEED_URL = "https://api.waqi.info/feed/@{uid}/"
