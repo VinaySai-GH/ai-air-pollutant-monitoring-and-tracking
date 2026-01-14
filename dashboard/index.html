@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Air Pollution Monitoring Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Mapbox GL JS -->
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🌍 Air Pollution Monitoring System</h1>
+            <p class="subtitle">Real-time Air Quality Index (AQI) and Pollution Hotspots</p>
+            <div class="header-features">
+                <span class="feature-badge">📊 AI-Powered Analytics</span>
+                <span class="feature-badge">🗺️ Interactive Maps</span>
+                <span class="feature-badge">⚡ Real-time Data</span>
+            </div>
+        </header>
+
+        <main>
+            <!-- Map Section -->
+            <section class="map-section">
+                <h2>Pollution Map</h2>
+                <div class="map-legend" style="margin-bottom: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                    <strong style="margin-right: 15px;">Pollution Levels:</strong>
+                    <span style="display: inline-block; margin-right: 15px;">
+                        <span style="display: inline-block; width: 20px; height: 20px; background: #00E400; border-radius: 3px; vertical-align: middle; margin-right: 5px;"></span>
+                        Good
+                    </span>
+                    <span style="display: inline-block; margin-right: 15px;">
+                        <span style="display: inline-block; width: 20px; height: 20px; background: #FFFF00; border-radius: 3px; vertical-align: middle; margin-right: 5px;"></span>
+                        Moderate
+                    </span>
+                    <span style="display: inline-block; margin-right: 15px;">
+                        <span style="display: inline-block; width: 20px; height: 20px; background: #FF7E00; border-radius: 3px; vertical-align: middle; margin-right: 5px;"></span>
+                        Unhealthy
+                    </span>
+                    <span style="display: inline-block; margin-right: 15px;">
+                        <span style="display: inline-block; width: 20px; height: 20px; background: #FF0000; border-radius: 3px; vertical-align: middle; margin-right: 5px;"></span>
+                        Very Unhealthy
+                    </span>
+                    <span style="display: inline-block;">
+                        <span style="display: inline-block; width: 20px; height: 20px; background: #7E0023; border-radius: 3px; vertical-align: middle; margin-right: 5px;"></span>
+                        Hazardous
+                    </span>
+                </div>
+                <div id="map" class="map-container"></div>
+                <div class="map-controls">
+                    <button id="refreshBtn" class="btn btn-primary">Refresh Data</button>
+                    <button id="toggleHotspotsBtn" class="btn btn-secondary">Toggle Hotspots</button>
+                </div>
+            </section>
+
+            <!-- Statistics Section -->
+            <section class="stats-section">
+                <h2>Current Statistics</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Average PM2.5</div>
+                        <div class="stat-value" id="avgPM25">--</div>
+                        <div class="stat-unit">µg/m³</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Hotspots Detected</div>
+                        <div class="stat-value" id="hotspotCount">--</div>
+                        <div class="stat-unit">locations</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Total Stations</div>
+                        <div class="stat-value" id="stationCount">--</div>
+                        <div class="stat-unit">monitoring points</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Hotspots List -->
+            <section class="hotspots-section">
+                <h2>Pollution Hotspots</h2>
+                <div id="hotspotsList" class="hotspots-list">
+                    <p class="loading">Loading hotspots...</p>
+                </div>
+            </section>
+
+            <!-- Prediction Section -->
+            <section class="prediction-section">
+                <h2>PM2.5 Prediction</h2>
+                <div class="prediction-form">
+                    <div class="form-group">
+                        <label for="latitude">Latitude:</label>
+                        <input type="number" id="latitude" step="0.0001" placeholder="28.6139" />
+                    </div>
+                    <div class="form-group">
+                        <label for="longitude">Longitude:</label>
+                        <input type="number" id="longitude" step="0.0001" placeholder="77.2090" />
+                    </div>
+                    <button id="predictBtn" class="btn btn-primary">Predict PM2.5</button>
+                    <div id="predictionResult" class="prediction-result"></div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>AI-Based Air Pollution Monitoring System | NSS Project</p>
+            <p class="api-status">API Status: <span id="apiStatus">Checking...</span></p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
