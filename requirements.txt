@@ -1,25 +1,34 @@
-# Required Python packages for the Air Pollution Monitoring System
+# Core API
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.0
+python-multipart>=0.0.6
 
-# Core data handling
-pandas>=2.0.0
+# Data Processing
+pandas>=2.1.0
 numpy>=1.24.0
+python-dotenv>=1.0.0
+
+# HTTP Requests
+requests>=2.31.0
+httpx>=0.26.0
+
+# Data Collection
+openaq>=0.7.0
+
 
 # Machine Learning
 scikit-learn>=1.3.0
+joblib>=1.3.0
 
-# API and web framework
-fastapi>=0.104.0
-uvicorn[standard]>=0.24.0
+# AI Chatbot (FREE!)
+google-generativeai>=0.3.0
+groq
 
-# HTTP requests for API calls
-requests>=2.31.0
+# Optional: Google Earth Engine (if you want satellite data)
+earthengine-api>=0.1.350
+# Uncomment above if you setup GEE authentication
 
-# Google Earth Engine (for satellite data)
-earthengine-api>=0.1.370
-
-# Data visualization (optional, for notebooks)
-matplotlib>=3.7.0
-seaborn>=0.12.0
-
-# Environment variables (for API keys)
-python-dotenv>=1.0.0
+# Development
+pytest>=7.4.0
+black>=23.0.0

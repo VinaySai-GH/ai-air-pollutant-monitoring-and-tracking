@@ -1,42 +1,167 @@
 """
-FastAPI Backend for Air Pollution Monitoring System
-Gas-Specific, Scientifically Honest Implementation
+Complete FastAPI Backend - Updated for FREE Google Gemini Chatbot
+
+Changes:
+- Replaced Anthropic Claude with Google Gemini (FREE)
+- All other features remain the same
 """
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import pandas as pd
 import numpy as np
 import sys
+import os
+# PROPER MANUAL ENV LOADER
+# Because standard libraries are failing on this specific Windows environment
 
-# ----------------------------------------------------------------------------
+def manual_load_env():
+    """Manually parses .env file to ensure keys are loaded."""
+    try:
+        # Search for .env in current and parent directories
+        current = Path.cwd()
+        possible_paths = [
+            current / ".env",
+            current.parent / ".env",
+            Path(__file__).parent.parent / ".env"
+        ]
+        
+        target_path = None
+        for p in possible_paths:
+            if p.exists():
+                target_path = p
+                break
+                
+        if not target_path:
+            print("[CRITICAL] .env file NOT FOUND in any standard location.")
+            return
+
+        print(f"[INFO] Loading .env from: {target_path}")
+        
+        # Use utf-8-sig to handle Windows BOM if present
+        with open(target_path, "r", encoding="utf-8-sig") as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if not line or line.startswith("#"): continue
+                
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    key = key.strip()
+                    value = value.strip()
+                    # Remove quotes
+                    if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+                        value = value[1:-1]
+                        
+                    os.environ[key] = value
+                    if "API_KEY" in key or "TOKEN" in key:
+                         print(f"[DEBUG] Line {line_num}: Loaded {key}")
+
+        # Verify GROQ
+        if "GROQ_API_KEY" in os.environ:
+             print(f"[SUCCESS] GROQ_API_KEY loaded: {os.environ['GROQ_API_KEY'][:5]}...")
+        else:
+             print("[ERROR] .env loaded but GROQ_API_KEY not found in file content.")
+             print(f"[DEBUG] Keys found: {[k for k in os.environ.keys() if 'API_KEY' in k]}")
+             
+    except Exception as e:
+        print(f"[ERROR] Failed to manually load .env: {e}")
+
+# Execute loader
+manual_load_env()
+
 # Path setup
-# ----------------------------------------------------------------------------
-
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.utils.gas_config import RAW_DATA_DIR
-from src.utils.gas_config import (
-    get_gas_config,
-    get_color_for_value,
-    get_category_for_value,
-    validate_value_range,
-    get_all_supported_gases,
-)
+# Import utilities
+try:
+    from src.utils.gas_config import (
+        get_gas_config,
+        get_color_for_value,
+        get_category_for_value,
+        get_all_supported_gases,
+        RAW_DATA_DIR
+    )
+    USE_GAS_CONFIG = True
+except ImportError:
+    print("[WARN] gas_config.py not found, using fallback")
+    USE_GAS_CONFIG = False
+    RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw"
+    
+    def get_all_supported_gases():
+        return ["pm25", "pm10", "no2", "so2", "co", "o3"]
+    
+    def get_gas_config(gas):
+        configs = {
+            "pm25": {"name": "PM2.5", "unit": "µg/m³", "max_scale": 250},
+            "pm10": {"name": "PM10", "unit": "µg/m³", "max_scale": 350},
+            "no2": {"name": "NO₂", "unit": "µg/m³", "max_scale": 200},
+            "so2": {"name": "SO₂", "unit": "µg/m³", "max_scale": 100},
+            "co": {"name": "CO", "unit": "mg/m³", "max_scale": 10},
+            "o3": {"name": "O₃", "unit": "µg/m³", "max_scale": 200},
+        }
+        return configs.get(gas, configs["pm25"])
+    
+    def get_color_for_value(gas, value):
+        config = get_gas_config(gas)
+        max_val = config["max_scale"]
+        if value <= max_val * 0.2: return "#00E400"
+        elif value <= max_val * 0.4: return "#FFFF00"
+        elif value <= max_val * 0.6: return "#FF7E00"
+        elif value <= max_val * 0.8: return "#FF0000"
+        else: return "#8F3F97"
+    
+    def get_category_for_value(gas, value):
+        config = get_gas_config(gas)
+        max_val = config["max_scale"]
+        if value <= max_val * 0.2: return "Good"
+        elif value <= max_val * 0.4: return "Moderate"
+        elif value <= max_val * 0.6: return "Unhealthy for Sensitive"
+        elif value <= max_val * 0.8: return "Unhealthy"
+        else: return "Very Unhealthy"
 
-# ----------------------------------------------------------------------------
-# App setup
-# ----------------------------------------------------------------------------
+# Import ML models
+try:
+    from src.models.hotspot_detection import HotspotDetector, PollutionPredictor, get_ranked_warnings
+    HAS_ML = True
+except ImportError:
+    print("[WARN] ML models not available")
+    HAS_ML = False
+
+# Import Google Gemini for FREE chatbot
+# Check for Groq
+try:
+    from groq import Groq
+    HAS_CHATBOT = True
+    print("[INFO] ✅ Groq SDK detected")
+except ImportError:
+    HAS_CHATBOT = False
+    print("[WARN] Groq not installed. Run: pip install groq")
+
+# Indian cities
+INDIAN_CITIES = [
+    (28.61, 77.21, "Delhi"),
+    (19.08, 72.88, "Mumbai"),
+    (12.97, 77.59, "Bangalore"),
+    (13.08, 80.27, "Chennai"),
+    (22.57, 88.36, "Kolkata"),
+    (17.39, 78.49, "Hyderabad"),
+    (23.02, 72.57, "Ahmedabad"),
+    (18.52, 73.86, "Pune"),
+]
+
+# ============================================================================
+# FASTAPI APP
+# ============================================================================
 
 app = FastAPI(
     title="Air Pollution Monitoring API",
-    description="Gas-specific air pollution monitoring for India",
-    version="2.0.0",
+    description="Real-time air quality monitoring with ML and FREE AI chatbot",
+    version="4.1.0",
 )
 
 app.add_middleware(
@@ -47,32 +172,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ----------------------------------------------------------------------------
-# Data models
-# ----------------------------------------------------------------------------
+# ============================================================================
+# DATA MODELS
+# ============================================================================
 
-class PredictionRequest(BaseModel):
-    latitude: float
-    longitude: float
-    gas: str = "pm25"
-
-
-class PredictionResponse(BaseModel):
-    predicted_value: float
+class DataSourceInfo(BaseModel):
     gas: str
+    name: str
+    sources: List[str]
+    measurements: int
+
+class GasStatistics(BaseModel):
+    gas: str
+    name: str
     unit: str
-    message: str
-
-
-class HotspotLocation(BaseModel):
-    latitude: float
-    longitude: float
-    avg_value: float
-    cluster: int
-    color: str
-    category: str
-    data_points: int  # Number of measurements in this hotspot
-
+    measurements: int
+    mean: Optional[float] = None
+    median: Optional[float] = None
+    min: Optional[float] = None
+    max: Optional[float] = None
+    std: Optional[float] = None
+    available: bool = True
 
 class DataPoint(BaseModel):
     date: str
@@ -84,318 +204,253 @@ class DataPoint(BaseModel):
     color: str
     category: str
 
-
-class DataCoverage(BaseModel):
-    gas: str
-    total_points: int
-    unique_locations: int
-    date_range: Dict[str, str]
-    coverage_quality: str  # "good", "moderate", "sparse", "insufficient"
-    geographic_bounds: Dict[str, float]
-
-
-class GasInfo(BaseModel):
-    parameter: str
-    name: str
-    unit: str
-    description: str
-    max_scale: float
-    available: bool
+class HotspotLocation(BaseModel):
+    rank: int
+    city_name: str
+    latitude: float
+    longitude: float
+    avg_value: float
+    cluster: int
+    color: str
+    category: str
     data_points: int
 
+class PredictionRequest(BaseModel):
+    latitude: float
+    longitude: float
+    gas: str = "pm25"
 
-# ----------------------------------------------------------------------------
-# Internal helpers
-# ----------------------------------------------------------------------------
+class PredictionResponse(BaseModel):
+    predicted_value: float
+    gas: str
+    unit: str
+    city_name: str
+    message: str
+    color: str
+    category: str
 
-def _normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Normalize column names and types."""
-    df = df.rename(columns={"lat": "latitude", "lon": "longitude"})
-    
-    if "parameter" not in df.columns:
-        df["parameter"] = "pm25"
-    
-    df["parameter"] = df["parameter"].str.lower()
-    
-    if "date" in df.columns:
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    
-    return df
+class ChatbotRequest(BaseModel):
+    message: str
+    context: Optional[Dict[str, Any]] = None
+
+class ChatbotResponse(BaseModel):
+    response: str
+    timestamp: str
+
+class WindData(BaseModel):
+    city: str
+    latitude: float
+    longitude: float
+    wind_speed: float
+    wind_direction: float
+    temperature: float
+    date: str
 
 
-def _load_all_data() -> Optional[pd.DataFrame]:
-    """Load all available pollution data."""
-    datasets: List[pd.DataFrame] = []
+class TrackingPoint(BaseModel):
+    original_lat: float
+    original_lon: float
+    predicted_lat: float
+    predicted_lon: float
+    hours_ahead: int
+    value: float
+    parameter: str
+    wind_speed: float
+    wind_direction: float
+
+class SourceStats(BaseModel):
+    source: str
+    count: int
+    percentage: float
+
+class WarningAlert(BaseModel):
+    title: str
+    message: str
+    severity: str  # high, medium, low
+    type: str     # influence, dispersion
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def find_nearest_city(lat: float, lon: float) -> str:
+    """Find nearest Indian city"""
+    min_dist = float('inf')
+    nearest_city = "Unknown"
     
-    # Combined gases dataset
-    combined_files = list(RAW_DATA_DIR.glob("all_gases_data*.csv"))
-    if combined_files:
-        latest_file = max(combined_files, key=lambda f: f.stat().st_mtime)
-        try:
-            df = pd.read_csv(latest_file)
-            df = _normalize_dataframe(df)
-            datasets.append(df)
-            print(f"[OK] Loaded: {latest_file.name} ({len(df)} rows)")
-        except Exception as e:
-            print(f"[ERROR] Failed to load {latest_file.name}: {e}")
+    for city_lat, city_lon, city_name in INDIAN_CITIES:
+        dist = ((lat - city_lat)**2 + (lon - city_lon)**2)**0.5
+        if dist < min_dist:
+            min_dist = dist
+            nearest_city = city_name
     
-    # Individual gas files
-    for pattern in ["waqi_*.csv", "sentinel_*.csv", "modis_*.csv"]:
-        for file in RAW_DATA_DIR.glob(pattern):
-            try:
-                df = pd.read_csv(file)
-                df = _normalize_dataframe(df)
-                datasets.append(df)
-                print(f"[OK] Loaded: {file.name} ({len(df)} rows)")
-            except Exception as e:
-                print(f"[ERROR] Failed to load {file.name}: {e}")
+    return f"Near {nearest_city}" if min_dist > 0.5 else nearest_city
+
+def load_data() -> Optional[pd.DataFrame]:
+    """Load latest data"""
+    data_file = RAW_DATA_DIR / "all_gases_data_latest.csv"
     
-    if not datasets:
-        print("[WARN] No data files found")
+    if not data_file.exists():
+        print(f"[WARN] No data at {data_file}")
         return None
     
-    combined = pd.concat(datasets, ignore_index=True)
-    combined = combined.dropna(subset=["latitude", "longitude", "value"])
+    try:
+        df = pd.read_csv(data_file)
+        df['parameter'] = df['parameter'].str.lower()
+        return df
+    except Exception as e:
+        print(f"[ERROR] Failed to load data: {e}")
+        return None
+
+def load_weather_data() -> Optional[pd.DataFrame]:
+    """Load weather data"""
+    weather_file = RAW_DATA_DIR / "era5_weather_latest.csv"
     
-    # Validate ranges
-    valid_rows = []
-    for _, row in combined.iterrows():
-        gas = row["parameter"]
-        value = row["value"]
-        if validate_value_range(gas, value):
-            valid_rows.append(row)
-        else:
-            print(f"[WARN] Invalid value for {gas}: {value} (skipped)")
-    
-    if not valid_rows:
+    if not weather_file.exists():
         return None
     
-    result = pd.DataFrame(valid_rows)
-    print(f"[OK] Total valid records: {len(result)}")
-    return result
+    try:
+        return pd.read_csv(weather_file)
+    except Exception as e:
+        print(f"[ERROR] Failed to load weather: {e}")
+        return None
 
-
-def _grid_coordinates(lat: float, lon: float, grid_size: float = 0.05) -> tuple:
-    """Round coordinates to grid cell (0.05° ≈ 5km in India)."""
-    lat_grid = round(lat / grid_size) * grid_size
-    lon_grid = round(lon / grid_size) * grid_size
-    return lat_grid, lon_grid
-
-
-# ----------------------------------------------------------------------------
-# API Endpoints
-# ----------------------------------------------------------------------------
+# ============================================================================
+# BASIC ENDPOINTS
+# ============================================================================
 
 @app.get("/")
 def root():
     return {
         "status": "running",
-        "message": "Air Pollution Monitoring API for India",
-        "version": "2.0.0",
+        "message": "Air Pollution Monitoring API with ML & FREE AI",
+        "version": "4.1.0",
+        "features": [
+            "Real data (OpenAQ, WAQI)",
+            "ML predictions & hotspot detection",
+            "FREE AI chatbot (Google Gemini)",
+            "Pollution tracking with wind data"
+        ],
         "supported_gases": get_all_supported_gases(),
+        "chatbot": "Google Gemini (Free)" if HAS_CHATBOT else "Not configured"
     }
-
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+    """Health check"""
+    df = load_data()
+    weather_df = load_weather_data()
+    
+    return {
+        "status": "ok",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "data_available": df is not None,
+        "data_records": len(df) if df is not None else 0,
+        "weather_available": weather_df is not None,
+        "ml_available": HAS_ML,
+        "chatbot_available": HAS_CHATBOT,
+        "chatbot_provider": "Google Gemini (Free)" if HAS_CHATBOT else None,
+    }
 
+# ============================================================================
+# DATA ENDPOINTS (same as before)
+# ============================================================================
 
-@app.get("/gases", response_model=List[GasInfo])
-def list_available_gases():
-    """List all supported gases and their availability."""
-    df = _load_all_data()
+@app.get("/data-sources", response_model=List[DataSourceInfo])
+def get_data_sources():
+    """Get data source information"""
+    df = load_data()
     
     result = []
     for gas in get_all_supported_gases():
         config = get_gas_config(gas)
         
+        measurements = 0
         if df is not None:
-            gas_data = df[df["parameter"] == gas]
-            available = len(gas_data) > 0
-            data_points = len(gas_data)
-        else:
-            available = False
-            data_points = 0
+            measurements = len(df[df["parameter"] == gas])
+        
+        sources = ["OpenAQ", "WAQI"]
         
         result.append(
-            GasInfo(
-                parameter=gas,
+            DataSourceInfo(
+                gas=gas,
                 name=config["name"],
-                unit=config["unit"],
-                description=config["description"],
-                max_scale=config["max_scale"],
-                available=available,
-                data_points=data_points,
+                sources=sources,
+                measurements=measurements,
             )
         )
     
     return result
 
-
-@app.get("/coverage")
-def get_data_coverage(gas: str = "pm25"):
-    """Get data coverage statistics for a specific gas."""
-    df = _load_all_data()
-    
-    if df is None:
-        raise HTTPException(status_code=503, detail="No data available")
-    
-    gas_lower = gas.lower()
-    gas_df = df[df["parameter"] == gas_lower]
-    
-    if gas_df.empty:
-        return DataCoverage(
-            gas=gas_lower,
-            total_points=0,
-            unique_locations=0,
-            date_range={"start": "N/A", "end": "N/A"},
-            coverage_quality="insufficient",
-            geographic_bounds={"min_lat": 0, "max_lat": 0, "min_lon": 0, "max_lon": 0},
-        )
-    
-    # Calculate coverage quality
-    total_points = len(gas_df)
-    unique_locations = len(gas_df.groupby(["latitude", "longitude"]))
-    
-    if total_points < 10:
-        quality = "insufficient"
-    elif total_points < 50:
-        quality = "sparse"
-    elif total_points < 200:
-        quality = "moderate"
-    else:
-        quality = "good"
-    
-    # Date range
-    dates = gas_df["date"].dropna()
-    date_range = {
-        "start": dates.min().isoformat() if len(dates) > 0 else "N/A",
-        "end": dates.max().isoformat() if len(dates) > 0 else "N/A",
-    }
-    
-    # Geographic bounds
-    bounds = {
-        "min_lat": float(gas_df["latitude"].min()),
-        "max_lat": float(gas_df["latitude"].max()),
-        "min_lon": float(gas_df["longitude"].min()),
-        "max_lon": float(gas_df["longitude"].max()),
-    }
-    
-    return DataCoverage(
-        gas=gas_lower,
-        total_points=total_points,
-        unique_locations=unique_locations,
-        date_range=date_range,
-        coverage_quality=quality,
-        geographic_bounds=bounds,
-    )
-
-
-@app.get("/data/recent", response_model=List[DataPoint])
-def get_recent_data(gas: str = "pm25", limit: int = 500):
-    """Get recent data points for a specific gas."""
-    df = _load_all_data()
+@app.get("/stats/all", response_model=List[GasStatistics])
+def get_all_statistics():
+    """Get statistics for all gases"""
+    df = load_data()
     
     if df is None:
         return []
     
-    gas_lower = gas.lower()
-    gas_df = df[df["parameter"] == gas_lower].copy()
+    result = []
     
-    if gas_df.empty:
-        return []
-    
-    # Sort by date (most recent first) and limit
-    gas_df = gas_df.sort_values("date", ascending=False, na_position="last")
-    gas_df = gas_df.head(limit)
-    
-    response: List[DataPoint] = []
-    
-    for _, row in gas_df.iterrows():
-        value = float(row["value"])
+    for gas in get_all_supported_gases():
+        gas_df = df[df["parameter"] == gas]
+        config = get_gas_config(gas)
         
-        response.append(
-            DataPoint(
-                date=row["date"].isoformat() if pd.notna(row["date"]) else datetime.utcnow().isoformat(),
-                latitude=float(row["latitude"]),
-                longitude=float(row["longitude"]),
-                value=value,
-                parameter=gas_lower,
-                location=row.get("location", ""),
-                color=get_color_for_value(gas_lower, value),
-                category=get_category_for_value(gas_lower, value),
+        if gas_df.empty:
+            result.append(
+                GasStatistics(
+                    gas=gas,
+                    name=config["name"],
+                    unit=config["unit"],
+                    measurements=0,
+                    available=False,
+                )
             )
-        )
-    
-    return response
-
-
-@app.get("/hotspots", response_model=List[HotspotLocation])
-def get_hotspots(gas: str = "pm25", min_points: int = 3, top_n: int = 15):
-    """
-    Identify pollution hotspots using grid-based aggregation.
-    Returns top N grid cells with highest average pollution.
-    """
-    df = _load_all_data()
-    
-    if df is None:
-        return []
-    
-    gas_lower = gas.lower()
-    gas_df = df[df["parameter"] == gas_lower].copy()
-    
-    if gas_df.empty:
-        return []
-    
-    # Grid-based aggregation (0.05° ≈ 5km)
-    gas_df["lat_grid"], gas_df["lon_grid"] = zip(
-        *gas_df.apply(lambda row: _grid_coordinates(row["latitude"], row["longitude"]), axis=1)
-    )
-    
-    # Group by grid cell
-    grouped = (
-        gas_df.groupby(["lat_grid", "lon_grid"])
-        .agg(
-            avg_value=("value", "mean"),
-            count=("value", "count"),
-        )
-        .reset_index()
-    )
-    
-    # Filter by minimum points
-    grouped = grouped[grouped["count"] >= min_points]
-    
-    if grouped.empty:
-        return []
-    
-    # Sort by average value (descending) and take top N
-    grouped = grouped.sort_values("avg_value", ascending=False).head(top_n)
-    
-    hotspots: List[HotspotLocation] = []
-    
-    for idx, row in enumerate(grouped.itertuples(), start=1):
-        avg_val = row.avg_value
-        
-        hotspots.append(
-            HotspotLocation(
-                latitude=row.lat_grid,
-                longitude=row.lon_grid,
-                avg_value=round(avg_val, 2),
-                cluster=((idx - 1) // 5) + 1,  # Group into clusters of 5
-                color=get_color_for_value(gas_lower, avg_val),
-                category=get_category_for_value(gas_lower, avg_val),
-                data_points=int(row.count),
+        else:
+            values = gas_df["value"].dropna()
+            result.append(
+                GasStatistics(
+                    gas=gas,
+                    name=config["name"],
+                    unit=config["unit"],
+                    measurements=len(values),
+                    mean=round(float(values.mean()), 2),
+                    median=round(float(values.median()), 2),
+                    min=round(float(values.min()), 2),
+                    max=round(float(values.max()), 2),
+                    std=round(float(values.std()), 2),
+                    available=True,
+                )
             )
-        )
     
-    return hotspots
+    return result
 
+@app.get("/stats/sources", response_model=List[SourceStats])
+def get_source_statistics():
+    """Get contribution breakdown by source"""
+    df = load_data()
+    if df is None or df.empty:
+        return []
+    
+    total = len(df)
+    counts = df['source'].value_counts().to_dict()
+    
+    result = []
+    for source, count in counts.items():
+        result.append(SourceStats(
+            source=source,
+            count=int(count),
+            percentage=round((count / total) * 100, 1)
+        ))
+    
+    # Sort by count descending
+    result.sort(key=lambda x: x.count, reverse=True)
+    return result
 
 @app.get("/stats")
 def get_statistics(gas: str = "pm25"):
-    """Get statistical summary for a specific gas."""
-    df = _load_all_data()
+    """Get statistics for specific gas"""
+    df = load_data()
     
     if df is None:
         raise HTTPException(status_code=503, detail="No data available")
@@ -404,11 +459,7 @@ def get_statistics(gas: str = "pm25"):
     gas_df = df[df["parameter"] == gas_lower]
     
     if gas_df.empty:
-        return {
-            "gas": gas_lower,
-            "available": False,
-            "message": f"No data available for {gas_lower}",
-        }
+        return {"gas": gas_lower, "available": False}
     
     config = get_gas_config(gas_lower)
     values = gas_df["value"].dropna()
@@ -418,90 +469,386 @@ def get_statistics(gas: str = "pm25"):
         "name": config["name"],
         "unit": config["unit"],
         "available": True,
-        "count": int(len(values)),
+        "measurements": int(len(values)),
         "mean": round(float(values.mean()), 2),
         "median": round(float(values.median()), 2),
         "min": round(float(values.min()), 2),
         "max": round(float(values.max()), 2),
         "std": round(float(values.std()), 2),
-        "category_distribution": {
-            "good": int((values <= config["thresholds"]["good"]).sum()),
-            "moderate": int(
-                ((values > config["thresholds"]["good"]) & (values <= config["thresholds"]["moderate"])).sum()
-            ),
-            "unhealthy": int((values > config["thresholds"]["moderate"]).sum()),
-        },
     }
 
-
-@app.post("/predict", response_model=PredictionResponse)
-def predict_value(request: PredictionRequest):
-    """
-    Placeholder for ML prediction.
-    Currently returns nearest neighbor average.
-    """
-    df = _load_all_data()
+@app.get("/data/recent", response_model=List[DataPoint])
+def get_recent_data(gas: str = "pm25", limit: int = 500):
+    """Get recent measurements"""
+    df = load_data()
     
     if df is None:
-        raise HTTPException(status_code=503, detail="No data available for prediction")
+        return []
     
-    gas_lower = request.gas.lower()
-    gas_df = df[df["parameter"] == gas_lower]
+    gas_df = df[df["parameter"] == gas.lower()].copy()
     
     if gas_df.empty:
-        raise HTTPException(status_code=404, detail=f"No data for {gas_lower}")
+        return []
     
-    # Simple nearest neighbor (within 0.1° ≈ 10km)
-    nearby = gas_df[
-        (abs(gas_df["latitude"] - request.latitude) < 0.1)
-        & (abs(gas_df["longitude"] - request.longitude) < 0.1)
-    ]
+    if 'date' in gas_df.columns:
+        gas_df['date'] = pd.to_datetime(gas_df['date'])
+        gas_df = gas_df.sort_values('date', ascending=False)
     
-    if nearby.empty:
-        # Fallback: use overall average
-        predicted = float(gas_df["value"].mean())
-        message = "No nearby data. Using regional average."
-    else:
-        predicted = float(nearby["value"].mean())
-        message = f"Based on {len(nearby)} nearby measurements"
+    gas_df = gas_df.head(limit)
     
-    config = get_gas_config(gas_lower)
+    result = []
+    for _, row in gas_df.iterrows():
+        result.append(DataPoint(
+            date=str(row.get('date', datetime.now(timezone.utc))),
+            latitude=float(row['latitude']),
+            longitude=float(row['longitude']),
+            value=float(row['value']),
+            parameter=row['parameter'],
+            location=row.get('location', 'Unknown'),
+            color=get_color_for_value(gas.lower(), row['value']),
+            category=get_category_for_value(gas.lower(), row['value']),
+        ))
     
-    return PredictionResponse(
-        predicted_value=round(predicted, 2),
-        gas=gas_lower,
-        unit=config["unit"],
-        message=message,
-    )
+    return result
 
+# ============================================================================
+# HOTSPOT DETECTION
+# ============================================================================
 
-# ----------------------------------------------------------------------------
-# Startup
-# ----------------------------------------------------------------------------
-
-@app.on_event("startup")
-async def startup_event():
-    print("\n" + "=" * 60)
-    print("Air Pollution Monitoring API - Starting")
-    print("=" * 60)
+@app.get("/hotspots", response_model=List[HotspotLocation])
+def get_hotspots(gas: str = "pm25", top_n: int = 10):
+    """Get pollution hotspots"""
+    df = load_data()
     
-    # Check data availability
-    df = _load_all_data()
-    if df is not None:
-        gases = df["parameter"].unique()
-        print(f"\n✓ Data loaded successfully")
-        print(f"  Available gases: {', '.join(gases)}")
-        print(f"  Total records: {len(df)}")
-    else:
-        print("\n⚠ WARNING: No data files found!")
-        print("  Place CSV files in:", RAW_DATA_DIR)
+    if df is None or not HAS_ML:
+        return []
     
-    print("\n" + "=" * 60)
-    print("API ready at: http://localhost:8000")
-    print("Documentation: http://localhost:8000/docs")
-    print("=" * 60 + "\n")
+    try:
+        detector = HotspotDetector(method='kmeans', n_clusters=15)
+        hotspots = detector.detect_hotspots(df, parameter=gas.lower())
+        
+        if hotspots.empty:
+            return []
+        
+        hotspots = hotspots.head(top_n)
+        
+        result = []
+        for _, row in hotspots.iterrows():
+            result.append(HotspotLocation(
+                rank=int(row['rank']),
+                city_name=row['city_name'],
+                latitude=float(row['latitude']),
+                longitude=float(row['longitude']),
+                avg_value=round(float(row['avg_value']), 2),
+                cluster=int(row['cluster']),
+                color=get_color_for_value(gas.lower(), row['avg_value']),
+                category=get_category_for_value(gas.lower(), row['avg_value']),
+                data_points=int(row['data_points']),
+            ))
+        
+        return result
+        
+    except Exception as e:
+        print(f"[ERROR] Hotspot detection failed: {e}")
+        return []
 
+# ============================================================================
+# PREDICTION
+# ============================================================================
+
+@app.post("/predict", response_model=PredictionResponse)
+def predict_pollution(request: PredictionRequest):
+    """Predict pollution at location"""
+    
+    if not HAS_ML:
+        raise HTTPException(status_code=503, detail="ML models not available")
+    
+    try:
+        predictor = PollutionPredictor()
+        predicted = predictor.predict(
+            request.latitude,
+            request.longitude,
+            parameter=request.gas.lower()
+        )
+        
+        config = get_gas_config(request.gas.lower())
+        city_name = find_nearest_city(request.latitude, request.longitude)
+        
+        return PredictionResponse(
+            predicted_value=round(predicted, 2),
+            gas=request.gas.lower(),
+            unit=config["unit"],
+            city_name=city_name,
+            message=f"ML prediction using Random Forest model",
+            color=get_color_for_value(request.gas.lower(), predicted),
+            category=get_category_for_value(request.gas.lower(), predicted),
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
+# WIND & TRACKING
+# ============================================================================
+
+@app.get("/weather/current", response_model=List[WindData])
+def get_current_weather():
+    """Get current weather conditions"""
+    weather_df = load_weather_data()
+    
+    if weather_df is None:
+        return []
+    
+    weather_df['date'] = pd.to_datetime(weather_df['date'])
+    latest = weather_df.sort_values('date').groupby('city').tail(1)
+    
+    result = []
+    for _, row in latest.iterrows():
+        result.append(WindData(
+            city=row['city'],
+            latitude=float(row['latitude']),
+            longitude=float(row['longitude']),
+            wind_speed=round(float(row['wind_speed']), 1),
+            wind_direction=round(float(row['wind_direction']), 1),
+            temperature=round(float(row['temperature']), 1),
+            date=str(row['date']),
+        ))
+    
+    return result
+
+# ============================================================================
+# ADVANCED FEATURES (Arrows & Warnings)
+# ============================================================================
+
+@app.get("/tracking", response_model=List[TrackingPoint])
+def get_pollution_tracking():
+    """Get pollution movement vectors"""
+    tracking_file = RAW_DATA_DIR / "pollution_tracking_latest.csv"
+    
+    if not tracking_file.exists():
+        return []
+        
+    try:
+        # Read a sample to keep it light
+        df = pd.read_csv(tracking_file)
+        
+        # Smarter sampling: if we have too many points, sample; otherwise show all
+        if len(df) > 2000:
+            df = df.iloc[::10, :] 
+        elif len(df) > 500:
+            df = df.iloc[::5, :]
+        result = []
+        for _, row in df.iterrows():
+            # Fix: Map correct CSV columns
+            lat = row.get('original_lat') or row.get('latitude')
+            lon = row.get('original_lon') or row.get('longitude')
+            wd = row.get('wind_direction') or row.get('wind_dir') or 0
+            ws = row.get('wind_speed') or 0
+            
+            if lat is not None and lon is not None:
+                result.append(TrackingPoint(
+                    latitude=float(lat),
+                    longitude=float(lon),
+                    angle=float(wd), 
+                    speed=float(ws),
+                    color="#888888" # Gray arrows
+                ))
+        return result
+    except Exception as e:
+        print(f"[ERROR] Tracking failed: {e}")
+        return []
+
+@app.get("/stats/sources")
+def get_source_stats():
+    """Get contribution stats from each data source"""
+    data_df = load_data()
+    if data_df is None or data_df.empty:
+        return []
+        
+    counts = data_df['source'].value_counts()
+    total = len(data_df)
+    
+    stats = []
+    for source, count in counts.items():
+        stats.append({
+            "source": source,
+            "count": int(count),
+            "percentage": round((count / total) * 100, 1)
+        })
+    return stats
+
+@app.get("/warnings", response_model=List[WarningAlert])
+def get_warnings():
+    """Get influence warnings and dispersion insights"""
+    alerts = []
+    
+    weather_df = load_weather_data()
+    data_df = load_data()
+    
+    # 1. Weather Analysis (General Insights)
+    if weather_df is not None and not weather_df.empty:
+        city = latest.get('city', 'the region')
+        
+        # Washout Insight
+        if precip > 0.05:
+             alerts.append(WarningAlert(
+                title=f"Washout: {city}", 
+                message=f"Precipitation ({precip:.2f} mm) in {city} is actively reducing particulate concentration through washout.", 
+                severity="low", 
+                type="dispersion"
+            ))
+
+        # Dispersion/Stagnation Insight
+        if ws > 20.0:
+            alerts.append(WarningAlert(
+                title=f"Dispersion: {city}", 
+                message=f"Strong winds ({ws:.1f} km/h) in {city} are preventing local accumulation but may transport pollutants to downwind areas.", 
+                severity="medium", 
+                type="dispersion"
+            ))
+        elif ws < 5.0:
+             alerts.append(WarningAlert(
+                title=f"Stagnation: {city}", 
+                message=f"Low wind speed ({ws:.1f} km/h) in {city} is trapping pollutants near sources, increasing local health risks.", 
+                severity="high", 
+                type="dispersion"
+            ))
+
+    # 2. Regional Influence (Weighted Top 4) using new logic from hotspot_detection.py
+    if data_df is not None and weather_df is not None and not weather_df.empty:
+        # The new get_ranked_warnings handles the complex score and ranking
+        top_warnings = get_ranked_warnings(data_df, weather_df, top_n=4)
+        
+        latest_weather = weather_df.sort_values('date').iloc[-1]
+        wind_speed = latest_weather.get('wind_speed', 0)
+        wind_dir = latest_weather.get('wind_direction', 0)
+        precip = latest_weather.get('total_precipitation', 0)
+        drift_dir = get_cardinal_direction(wind_dir + 180)
+
+        for item in top_warnings:
+            city = item['city']
+            val = item['avg_value']
+            score = item['score']
+            
+            msg = f"Pollution level {val:.1f} µg/m³"
+            if wind_speed > 10:
+                msg += f" is drifting {drift_dir} (Influence Score: {score:.1f})."
+            else:
+                msg += f" is stagnant (Influence Score: {score:.1f})."
+                
+            if precip > 0.1:
+                msg += " Impact mitigated by active rainfall."
+
+            alerts.append(WarningAlert(
+                title=f"Top Alert: {city}",
+                message=msg,
+                severity="high" if val > 150 or score > 200 else "medium",
+                type="influence"
+            ))
+    
+    # Clean and deduplicate alerts (by title)
+    unique_alerts = []
+    seen_titles = set()
+    for alert in alerts:
+        if alert.title not in seen_titles:
+            unique_alerts.append(alert)
+            seen_titles.add(alert.title)
+    
+    return unique_alerts[:6]
+
+def get_cardinal_direction(degrees):
+    """Helper to convert degrees to text"""
+    degrees = degrees % 360
+    if 45 <= degrees < 135: return "East"
+    if 135 <= degrees < 225: return "South"
+    if 225 <= degrees < 315: return "West"
+    return "North" 
+
+# ============================================================================
+# FREE AI CHATBOT (GOOGLE GEMINI)
+# ============================================================================
+
+@app.post("/chatbot", response_model=ChatbotResponse)
+async def chatbot(request: ChatbotRequest):
+    """FREE AI chatbot using Groq (Llama 3)"""
+    
+    groq_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not groq_key:
+        return ChatbotResponse(
+            response="❌ Chatbot not configured. Missing GROQ_API_KEY.",
+            timestamp=datetime.now(timezone.utc).isoformat()
+        )
+    
+    try:
+        # Get context
+        df = load_data()
+        context_info = "Current Air Quality Summary:\n"
+        if df is not None:
+            stats = df.groupby('parameter')['value'].mean().to_dict()
+            for p, v in stats.items():
+                context_info += f"- {p.upper()}: {v:.1f}\n"
+        
+        system_prompt = f"""You are an expert environmental scientist specializing in air quality.
+        Use this realtime data to answer the user:
+        {context_info}
+        
+        Keep answers concise (max 3 sentences) and action-oriented.
+        """
+
+        # Initialize Groq Client
+        from groq import Groq
+        client = Groq(api_key=groq_key)
+        
+        # Generate
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": request.message,
+                }
+            ],
+            model="llama-3.3-70b-versatile",
+            temperature=0.7,
+            max_tokens=300,
+            top_p=1,
+            stream=False,
+            stop=None,
+        )
+        
+        return ChatbotResponse(
+            response=chat_completion.choices[0].message.content,
+            timestamp=datetime.now(timezone.utc).isoformat()
+        )
+        
+    except Exception as e:
+        print(f"[ERROR] Chatbot failed: {e}")
+        return ChatbotResponse(
+            response=f"Error: {str(e)}",
+            timestamp=datetime.now(timezone.utc).isoformat()
+        )
+
+# ============================================================================
+# RUN SERVER
+# ============================================================================
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    
+    print("\n" + "=" * 70)
+    print("🌍 AIR POLLUTION MONITORING API")
+    print("=" * 70)
+    print("\n🤖 Chatbot: Google Gemini (FREE)" if HAS_CHATBOT else "\n⚠️  Chatbot: Not configured")
+    if not HAS_CHATBOT:
+        print("   Get FREE key: https://makersuite.google.com/app/apikey")
+    print("\n🚀 Starting server...")
+    print("📍 API: http://localhost:8000")
+    print("📖 Docs: http://localhost:8000/docs")
+    print("🎨 Dashboard: Open dashboard/index.html")
+    print("\nPress CTRL+C to stop")
+    print("=" * 70 + "\n")
+    
+    uvicorn.run(app, host="0.0.0.0", port=8000)

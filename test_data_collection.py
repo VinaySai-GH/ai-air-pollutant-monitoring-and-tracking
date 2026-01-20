@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from src.data_collection.fetch_waqi import fetch_waqi_data
 from src.data_collection.fetch_satellite_gee import fetch_sentinel5p_grid, fetch_modis_aod
-from src.utils.config import WAQI_API_TOKEN
+from src.utils.gas_config import WAQI_API_TOKEN
 
 def test_waqi():
     """Test WAQI data collection"""

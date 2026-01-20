@@ -25,13 +25,43 @@ load_dotenv()
 # -------------------------------------------------------------------
 
 BASE_DIR = Path(__file__).resolve().parents[2]
-RAW_DATA_DIR = BASE_DIR / "data" / "raw"
+
+DATA_DIR = BASE_DIR / "data"
+RAW_DATA_DIR = DATA_DIR / "raw"
+PROCESSED_DATA_DIR = DATA_DIR / "processed"
+
 RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
+PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # -------------------------------------------------------------------
-# Geographic configuration
+# API KEYS (FIXES ImportError)
 # -------------------------------------------------------------------
 
+WAQI_API_TOKEN = os.getenv("WAQI_API_TOKEN")
+OPENAQ_API_KEY = os.getenv("OPENAQ_API_KEY")
+
+if not WAQI_API_TOKEN:
+    raise RuntimeError(
+        "WAQI_API_TOKEN not found. Add it to .env file:\n"
+        "WAQI_API_TOKEN=your_token_here"
+    )
+
+if not OPENAQ_API_KEY:
+    print("[WARN] OPENAQ_API_KEY not set (OpenAQ fetch may fail)")
+
+# -------------------------------------------------------------------
+# Geographic configuration (FIXES KeyError: min_lat)
+# -------------------------------------------------------------------
+
+# Flat structure expected by fetch_waqi.py
+WAQI_BOUNDS = {
+    "min_lat": 6.5,
+    "max_lat": 37.5,
+    "min_lon": 68.0,
+    "max_lon": 97.5,
+}
+
+# GeoJSON polygon (optional, used by maps / API)
 AREA_OF_INTEREST = {
     "type": "Polygon",
     "coordinates": [[
@@ -42,27 +72,6 @@ AREA_OF_INTEREST = {
         [68.0, 6.5],
     ]]
 }
-
-WAQI_BOUNDS = {
-    "india": {
-        "lat_min": 6.5,
-        "lat_max": 37.5,
-        "lon_min": 68.0,
-        "lon_max": 97.5,
-    }
-}
-
-# -------------------------------------------------------------------
-# WAQI API configuration
-# -------------------------------------------------------------------
-
-WAQI_API_TOKEN = os.getenv("WAQI_API_TOKEN")
-
-if not WAQI_API_TOKEN:
-    raise RuntimeError(
-        "WAQI_API_TOKEN not found. Add it to .env file:\n"
-        "WAQI_API_TOKEN=your_token_here"
-    )
 
 # -------------------------------------------------------------------
 # Gas-specific configuration
@@ -213,7 +222,6 @@ def get_gas_config(gas: str) -> Dict[str, Any]:
 
 
 def get_all_supported_gases():
-    """Return list of supported gas parameters."""
     return SUPPORTED_GASES
 
 
