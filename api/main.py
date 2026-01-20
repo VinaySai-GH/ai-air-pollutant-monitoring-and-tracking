@@ -231,6 +231,8 @@ class PredictionResponse(BaseModel):
 
 class ChatbotRequest(BaseModel):
     message: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     context: Optional[Dict[str, Any]] = None
 
 class ChatbotResponse(BaseModel):
@@ -248,15 +250,11 @@ class WindData(BaseModel):
 
 
 class TrackingPoint(BaseModel):
-    original_lat: float
-    original_lon: float
-    predicted_lat: float
-    predicted_lon: float
-    hours_ahead: int
-    value: float
-    parameter: str
-    wind_speed: float
-    wind_direction: float
+    latitude: float
+    longitude: float
+    angle: float
+    speed: float
+    color: str = "#888888"
 
 class SourceStats(BaseModel):
     source: str
@@ -639,26 +637,31 @@ def get_pollution_tracking():
             df = df.iloc[::5, :]
         result = []
         for _, row in df.iterrows():
-            # Fix: Map correct CSV columns
-            lat = row.get('original_lat') or row.get('latitude')
-            lon = row.get('original_lon') or row.get('longitude')
-            wd = row.get('wind_direction') or row.get('wind_dir') or 0
-            ws = row.get('wind_speed') or 0
-            
-            if lat is not None and lon is not None:
-                result.append(TrackingPoint(
-                    latitude=float(lat),
-                    longitude=float(lon),
-                    angle=float(wd), 
-                    speed=float(ws),
-                    color="#888888" # Gray arrows
-                ))
+                try:
+                    # Use original_lat/lon for compatibility with CSV
+                    lat = row.get('original_lat')
+                    lon = row.get('original_lon')
+                    angle = row.get('wind_direction') or 0
+                    speed = row.get('wind_speed') or 0
+                    
+                    if pd.isna(lat) or pd.isna(lon):
+                        continue
+
+                    result.append(TrackingPoint(
+                        latitude=float(lat),
+                        longitude=float(lon),
+                        angle=float(angle), 
+                        speed=float(speed),
+                        color="#888888"
+                    ))
+                except (ValueError, TypeError):
+                    continue
         return result
     except Exception as e:
         print(f"[ERROR] Tracking failed: {e}")
         return []
 
-@app.get("/stats/sources")
+@app.get("/stats/sources", response_model=List[SourceStats])
 def get_source_stats():
     """Get contribution stats from each data source"""
     data_df = load_data()
@@ -687,32 +690,38 @@ def get_warnings():
     
     # 1. Weather Analysis (General Insights)
     if weather_df is not None and not weather_df.empty:
-        city = latest.get('city', 'the region')
-        
-        # Washout Insight
-        if precip > 0.05:
-             alerts.append(WarningAlert(
-                title=f"Washout: {city}", 
-                message=f"Precipitation ({precip:.2f} mm) in {city} is actively reducing particulate concentration through washout.", 
-                severity="low", 
-                type="dispersion"
-            ))
+        try:
+            latest_weather = weather_df.sort_values('date').tail(1).iloc[0].to_dict()
+            city = latest_weather.get('city', 'the region')
+            precip = latest_weather.get('total_precipitation', 0)
+            ws = latest_weather.get('wind_speed', 0)
+            
+            # Washout Insight
+            if precip > 0.05:
+                 alerts.append(WarningAlert(
+                    title=f"Washout: {city}", 
+                    message=f"Precipitation ({precip:.2f} mm) in {city} is actively reducing particulate concentration through washout.", 
+                    severity="low", 
+                    type="dispersion"
+                ))
 
-        # Dispersion/Stagnation Insight
-        if ws > 20.0:
-            alerts.append(WarningAlert(
-                title=f"Dispersion: {city}", 
-                message=f"Strong winds ({ws:.1f} km/h) in {city} are preventing local accumulation but may transport pollutants to downwind areas.", 
-                severity="medium", 
-                type="dispersion"
-            ))
-        elif ws < 5.0:
-             alerts.append(WarningAlert(
-                title=f"Stagnation: {city}", 
-                message=f"Low wind speed ({ws:.1f} km/h) in {city} is trapping pollutants near sources, increasing local health risks.", 
-                severity="high", 
-                type="dispersion"
-            ))
+            # Dispersion/Stagnation Insight
+            if ws > 20.0:
+                alerts.append(WarningAlert(
+                    title=f"Dispersion: {city}", 
+                    message=f"Strong winds ({ws:.1f} km/h) in {city} are preventing local accumulation but may transport pollutants to downwind areas.", 
+                    severity="medium", 
+                    type="dispersion"
+                ))
+            elif ws < 5.0:
+                 alerts.append(WarningAlert(
+                    title=f"Stagnation: {city}", 
+                    message=f"Low wind speed ({ws:.1f} km/h) in {city} is trapping pollutants near sources, increasing local health risks.", 
+                    severity="high", 
+                    type="dispersion"
+                ))
+        except Exception as e:
+            print(f"[WARN] Weather analysis in warnings failed: {e}")
 
     # 2. Regional Influence (Weighted Top 4) using new logic from hotspot_detection.py
     if data_df is not None and weather_df is not None and not weather_df.empty:
@@ -780,19 +789,59 @@ async def chatbot(request: ChatbotRequest):
         )
     
     try:
-        # Get context
+        # 1. Gather Global Context
         df = load_data()
-        context_info = "Current Air Quality Summary:\n"
-        if df is not None:
-            stats = df.groupby('parameter')['value'].mean().to_dict()
-            for p, v in stats.items():
-                context_info += f"- {p.upper()}: {v:.1f}\n"
+        weather_df = load_weather_data()
         
-        system_prompt = f"""You are an expert environmental scientist specializing in air quality.
-        Use this realtime data to answer the user:
+        context_lines = []
+        user_local_context = ""
+
+        if df is not None and not df.empty:
+            # National Averages
+            stats = df.groupby('parameter')['value'].mean().to_dict()
+            avg_str = " | ".join([f"{p.upper()}: {v:.1f}" for p, v in stats.items()])
+            context_lines.append(f"National Average Levels: {avg_str}")
+            
+            # Hyper-local context if coordinates provided
+            if request.latitude is not None and request.longitude is not None:
+                # Find nearest stations within ~50km
+                df['dist'] = np.sqrt((df['latitude'] - request.latitude)**2 + (df['longitude'] - request.longitude)**2)
+                nearby = df[df['dist'] < 0.5].sort_values('dist').head(3)
+                
+                if not nearby.empty:
+                    city = find_nearest_city(request.latitude, request.longitude)
+                    local_vals = " | ".join([f"{row['parameter'].upper()}: {row['value']:.1f}" for _, row in nearby.iterrows()])
+                    user_local_context = f"\nUSER LOCATION CONTEXT: User is in/near {city}. Local levels observed: {local_vals}"
+                else:
+                    user_local_context = f"\nUSER LOCATION CONTEXT: User at ({request.latitude}, {request.longitude}), but no stations found within 50km."
+
+            # Hotspots
+            hotspots = df.sort_values('value', ascending=False).head(5)
+            hotspot_str = ", ".join([f"{row['location']} ({row['parameter'].upper()}: {row['value']:.1f})" for _, row in hotspots.iterrows()])
+            context_lines.append(f"Current Peak Hotspots: {hotspot_str}")
+            
+        # Get active warnings
+        try:
+            active_warnings = get_warnings()
+            if active_warnings:
+                warning_str = " | ".join([f"{w.title}: {w.message}" for w in active_warnings[:3]])
+                context_lines.append(f"Active Meteorological Warnings: {warning_str}")
+        except:
+            pass
+            
+        context_info = "\n".join(context_lines) + user_local_context
+
+        system_prompt = f"""You are 'AirAware Pro', a premium AI Environmental Scientist and friendly project assistant.
+        
+        CURRENT SYSTEM DATA (Reference if relevant):
         {context_info}
         
-        Keep answers concise (max 3 sentences) and action-oriented.
+        YOUR GUIDELINES:
+        1. CONVERSATIONAL & EXPERT: You are a high-level LLM. Answer general questions normally. You don't HAVE to mention data if the user is just chatting or asking general science questions.
+        2. DATA-AWARE: When asked about current conditions, locations, or trends, use the 'CURRENT SYSTEM DATA' provided above.
+        3. PERSONALITY: Be professional, authoritative, but also engaging and friendly. Not robotic.
+        4. BREVITY: Keep answers concise but complete. No strict sentence limits, but avoid long essays unless requested.
+        5. FORMATTING: Use **bolding** for critical values or important terms.
         """
 
         # Initialize Groq Client
@@ -812,11 +861,10 @@ async def chatbot(request: ChatbotRequest):
                 }
             ],
             model="llama-3.3-70b-versatile",
-            temperature=0.7,
-            max_tokens=300,
+            temperature=0.6,
+            max_tokens=400,
             top_p=1,
             stream=False,
-            stop=None,
         )
         
         return ChatbotResponse(

@@ -134,12 +134,19 @@
             <div class="lower-deck">
                 <!-- AI Prediction Panel -->
                 <div class="panel">
-                    <h2>🤖 AI Forecaster</h2>
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h2 style="margin: 0;">🤖 AI Forecaster</h2>
+                        <button id="locateMeBtn" class="btn btn-secondary"
+                            style="width: auto; padding: 6px 12px; font-size: 0.75rem;">
+                            📍 Use My Location
+                        </button>
+                    </div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                         <input type="number" id="latitude" class="custom-select" placeholder="Lat (e.g. 28.61)"
-                            step="0.01">
+                            step="0.0001">
                         <input type="number" id="longitude" class="custom-select" placeholder="Lon (e.g. 77.21)"
-                            step="0.01">
+                            step="0.0001">
                     </div>
                     <button id="predictBtn" class="btn btn-primary" style="margin-top: 16px;">
                         Predict Pollution Level

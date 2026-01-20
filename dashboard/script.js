@@ -17,6 +17,7 @@ const els = {
     sourceStats: document.getElementById('sourceStats'),
     predictBtn: document.getElementById('predictBtn'),
     alertsContainer: document.getElementById('alertsContainer'),
+    locateMeBtn: document.getElementById('locateMeBtn'),
 
     // Stats
     avgValue: document.getElementById('avgValue'),
@@ -366,6 +367,10 @@ async function sendChatMessage() {
     const text = els.chatInput.value.trim();
     if (!text) return;
 
+    // Get current coords from inputs (manual or browser-set)
+    const lat = document.getElementById('latitude').value;
+    const lon = document.getElementById('longitude').value;
+
     addMessage(text, 'user');
     els.chatInput.value = '';
 
@@ -375,7 +380,11 @@ async function sendChatMessage() {
         const res = await fetch(`${API_BASE_URL}/chatbot`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: text })
+            body: JSON.stringify({
+                message: text,
+                latitude: lat ? parseFloat(lat) : null,
+                longitude: lon ? parseFloat(lon) : null
+            })
         });
         const data = await res.json();
 
@@ -447,6 +456,31 @@ els.predictBtn.addEventListener('click', async () => {
     } catch (e) {
         resultBox.innerText = "Prediction Failed";
     }
+});
+
+els.locateMeBtn.addEventListener('click', () => {
+    if (!navigator.geolocation) {
+        showToast("Geolocation not supported", "error");
+        return;
+    }
+
+    els.locateMeBtn.innerText = "📍 Locating...";
+
+    navigator.geolocation.getCurrentPosition(
+        (pos) => {
+            document.getElementById('latitude').value = pos.coords.latitude.toFixed(4);
+            document.getElementById('longitude').value = pos.coords.longitude.toFixed(4);
+            els.locateMeBtn.innerText = "📍 Use My Location";
+            showToast("Location updated!", "success");
+
+            // Re-center map optionally
+            if (map) map.setView([pos.coords.latitude, pos.coords.longitude], 10);
+        },
+        (err) => {
+            els.locateMeBtn.innerText = "📍 Use My Location";
+            showToast("Location access denied", "warning");
+        }
+    );
 });
 
 

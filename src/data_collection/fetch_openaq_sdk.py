@@ -44,7 +44,7 @@ def fetch_real_openaq_data_sdk(
         DataFrame with REAL air quality measurements
     """
     if parameters is None:
-        parameters = ['pm25']
+        parameters = ['pm25', 'pm10', 'no2', 'so2', 'o3', 'co']
     
     country_id = COUNTRY_IDS.get(country_code.upper(), 9)
     
@@ -88,62 +88,69 @@ def fetch_real_openaq_data_sdk(
             6: "so2"
         }
         
-        print("Step 2: Extracting Sensors for all parameters...")
+        # Step 2: Extract Sensors for all parameters
+        print("Step 2: Processing locations and sensors...")
         for loc in locs_response.results:
-            # Store metadata
             lat = None
             lon = None
             if hasattr(loc, 'coordinates'):
                 lat = loc.coordinates.latitude
                 lon = loc.coordinates.longitude
             
-            # Find relevant sensors in this location
-            if hasattr(loc, 'sensors'):
+            if hasattr(loc, 'sensors') and loc.sensors:
                 for sensor in loc.sensors:
-                    param_id = sensor.parameter.id if hasattr(sensor, 'parameter') else None
-                    if param_id in PARAM_MAP:
+                    # Check if sensor has a parameter we want
+                    p_name = None
+                    if hasattr(sensor, 'parameter'):
+                         if isinstance(sensor.parameter, dict):
+                             p_name = sensor.parameter.get('name')
+                         else:
+                             p_name = sensor.parameter.name if hasattr(sensor.parameter, 'name') else None
+                    
+                    if p_name in ["pm25", "pm10", "o3", "co", "no2", "so2"] or (hasattr(sensor, 'parameter') and sensor.parameter.id in PARAM_MAP):
                         sensor_ids.append(sensor.id)
-                        # Map sensor ID to location metadata and parameter name
                         location_map[sensor.id] = {
                             "name": loc.name,
                             "lat": lat,
                             "lon": lon,
-                            "parameter": PARAM_MAP[param_id]
+                            "parameter": p_name or PARAM_MAP.get(sensor.parameter.id, "unknown")
                         }
         
-        print(f"Found {len(sensor_ids)} relevant sensors.")
+        print(f"Found {len(sensor_ids)} candidate sensors.")
         
         if not sensor_ids:
             return pd.DataFrame()
 
-        # Step 3: Fetch measurements for sensors
+        # Step 3: Fetch measurements
+        # Increase lookback to 3 days to ensure we get something if stations are slow
         date_to = datetime.now()
-        date_from = date_to - timedelta(days=2)
+        date_from = date_to - timedelta(days=3)
         
-        # OpenAQ v3 uses datetime_from and datetime_to
         datetime_from = date_from.strftime("%Y-%m-%dT%H:%M:%S")
         datetime_to = date_to.strftime("%Y-%m-%dT%H:%M:%S")
         
         all_data = []
+        # Take a larger sample but still respect rate limits
+        target_sensors = sensor_ids[:100] 
         
-        # Taking top 30 sensors to avoid rate limits
-        target_sensors = sensor_ids[:30] 
+        print(f"Step 3: Fetching measurements for up to {len(target_sensors)} sensors...")
         
-        print(f"Step 3: Fetching measurements for {len(target_sensors)} sensors ({datetime_from} to {datetime_to})")
-        
-        for idx, sid in enumerate(target_sensors):
+        session = requests.Session() # Reuse connection
+        for sid in target_sensors:
             try:
-                # Direct API call as SDK measurements.list is returnning 0 results
                 url = f"https://api.openaq.org/v3/sensors/{sid}/measurements"
-                headers = {"X-API-Key": OPENAQ_API_KEY}
+                # Use a wider 7-day windows by default to ensure we capture some data
+                # for stations that might be reporting with some lag
+                d_to = datetime.utcnow()
+                d_from = d_to - timedelta(days=14)
                 
                 params = {
-                    "datetime_from": datetime_from,
-                    "datetime_to": datetime_to,
-                    "limit": 100
+                    "datetime_from": d_from.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "datetime_to": d_to.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "limit": 10
                 }
                 
-                resp = requests.get(url, headers=headers, params=params)
+                resp = session.get(url, headers={"X-API-Key": OPENAQ_API_KEY}, params=params, timeout=10)
                 if resp.status_code != 200:
                     continue
                     
@@ -151,9 +158,12 @@ def fetch_real_openaq_data_sdk(
                 measurements = data.get('results', [])
                 loc_meta = location_map.get(sid, {})
                 
+                if not measurements:
+                    continue
+
                 for m in measurements:
                      val = m.get('value', 0)
-                     # v3 uses period.datetime_to or similar
+                     # Standardize date
                      measure_date = datetime.now().isoformat()
                      if 'period' in m and 'datetime_to' in m['period']:
                          measure_date = m['period']['datetime_to']['utc']
@@ -171,13 +181,13 @@ def fetch_real_openaq_data_sdk(
                         "country": country_code,
                         "source": "OpenAQ (Live)",
                     }
+                     # Basic validation
                      if record["value"] >= 0 and record["latitude"] is not None:
                         all_data.append(record)
                         
                 print(f".", end="", flush=True)
                 
             except Exception as inner_e:
-                print(f"\n[Error fetching Sensor {sid}]: {inner_e}")
                 continue
 
         print(f"\nExtracted {len(all_data)} measurements.")
