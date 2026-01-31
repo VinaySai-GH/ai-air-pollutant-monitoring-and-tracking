@@ -126,6 +126,11 @@ async function updateMapData(gas) {
         markersLayer.clearLayers();
 
         points.forEach(p => {
+            // FILTER: Skip Unknown locations and unrealistic values (sensor errors)
+            if (p.location === 'Unknown' || !p.location || p.value > 1000) {
+                return; // Skip this point
+            }
+
             const color = p.color || '#cccccc';
             L.circleMarker([p.latitude, p.longitude], {
                 radius: 6,
@@ -137,7 +142,7 @@ async function updateMapData(gas) {
             })
                 .bindPopup(`
                 <div style="color:black; font-family:'Inter',sans-serif;">
-                    <strong>${p.location || 'Unknown Location'}</strong><br>
+                    <strong>${p.location}</strong><br>
                     ${gas.toUpperCase()}: <b>${p.value.toFixed(1)}</b><br>
                     Status: <span style="color:${color}; font-weight:bold">${p.category}</span>
                 </div>
@@ -147,13 +152,18 @@ async function updateMapData(gas) {
 
         // Update Heatmap with robust normalization
         if (points.length > 0) {
+            // Filter out bad data for heatmap too
+            const validPoints = points.filter(p =>
+                p.location !== 'Unknown' && p.location && p.value < 1000
+            );
+
             // Use a sensible max for normalization to ensure visible gradients
             // PM2.5: 150+ is Very Unhealthy. 
             const maxValHeuristic = gas === 'pm25' ? 120 : (gas === 'co' ? 8 : 200);
-            const dataMax = Math.max(...points.map(p => p.value));
+            const dataMax = Math.max(...validPoints.map(p => p.value));
             const normMax = Math.max(dataMax, maxValHeuristic * 0.4);
 
-            const heatPoints = points.map(p => [
+            const heatPoints = validPoints.map(p => [
                 p.latitude,
                 p.longitude,
                 Math.min((p.value / normMax) * 1.5, 1.0) // Boost weight slightly for visibility
@@ -174,13 +184,18 @@ async function loadHotspots(gas) {
         const res = await fetch(`${API_BASE_URL}/hotspots?gas=${gas}&top_n=5`);
         const data = await res.json();
 
-        list.innerHTML = '';
-        if (data.length === 0) {
+        // Filter out only Unknown from hotspots (keep high values!)
+        const filteredData = data.filter(h => h.city_name !== 'Unknown');
+
+        if (filteredData.length === 0) {
             list.innerHTML = '<div style="padding:10px">No major hotspots detected.</div>';
             return;
         }
 
-        data.forEach(h => {
+        // Clear the list first
+        list.innerHTML = '';
+
+        filteredData.forEach(h => {
             const item = document.createElement('div');
             item.style.display = 'flex';
             item.style.justifyContent = 'space-between';
@@ -358,6 +373,17 @@ els.closeChat.addEventListener('click', () => {
     els.chatWindow.classList.remove('active');
 });
 
+// Theme Toggle (Day/Night Mode)
+document.getElementById('toggleThemeBtn').addEventListener('click', () => {
+    document.body.classList.toggle('light-theme');
+    const btn = document.getElementById('toggleThemeBtn');
+    if (document.body.classList.contains('light-theme')) {
+        btn.innerHTML = '☀️';
+    } else {
+        btn.innerHTML = '🌙';
+    }
+});
+
 els.sendMessage.addEventListener('click', sendChatMessage);
 els.chatInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') sendChatMessage();
@@ -367,9 +393,9 @@ async function sendChatMessage() {
     const text = els.chatInput.value.trim();
     if (!text) return;
 
-    // Get current coords from inputs (manual or browser-set)
-    const lat = document.getElementById('latitude').value;
-    const lon = document.getElementById('longitude').value;
+    // Use selected city coords if available
+    const lat = selectedCity.lat || null;
+    const lon = selectedCity.lon || null;
 
     addMessage(text, 'user');
     els.chatInput.value = '';
@@ -382,8 +408,8 @@ async function sendChatMessage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 message: text,
-                latitude: lat ? parseFloat(lat) : null,
-                longitude: lon ? parseFloat(lon) : null
+                latitude: lat,
+                longitude: lon
             })
         });
         const data = await res.json();
@@ -418,19 +444,119 @@ function addMessage(text, type, isLoading = false, isHtml = false) {
 }
 
 // ==========================================
-// Prediction Logic
+// ==========================================
+// Prediction & Forecasting Logic
 // ==========================================
 
-els.predictBtn.addEventListener('click', async () => {
-    const lat = document.getElementById('latitude').value;
-    const lon = document.getElementById('longitude').value;
-    const resultBox = document.getElementById('predictionResult');
+const citySelector = document.getElementById('citySelector');
+const selectedCoords = document.getElementById('selectedCoords');
+const forecastBtn = document.getElementById('forecastBtn');
+const forecastModal = document.getElementById('forecastModal');
+const closeForecast = document.getElementById('closeForecast');
+let forecastChartInstance = null;
 
-    if (!lat || !lon) {
-        showToast("Please enter valid coords", "warning");
+// Store selected city data
+let selectedCity = { name: '', lat: null, lon: null };
+
+// Update coordinates display when city is selected
+citySelector.addEventListener('change', (e) => {
+    const option = e.target.selectedOptions[0];
+    if (option.value) {
+        selectedCity.name = option.value;
+        selectedCity.lat = parseFloat(option.dataset.lat);
+        selectedCity.lon = parseFloat(option.dataset.lon);
+        selectedCoords.innerText = `📍 ${selectedCity.lat.toFixed(2)}°N, ${selectedCity.lon.toFixed(2)}°E`;
+        selectedCoords.style.color = 'var(--accent-purple)';
+    } else {
+        selectedCity = { name: '', lat: null, lon: null };
+        selectedCoords.innerText = 'Select a city to see coordinates';
+        selectedCoords.style.color = 'var(--text-muted)';
+    }
+});
+
+forecastBtn.addEventListener('click', async () => {
+    if (!selectedCity.lat || !selectedCity.lon) {
+        showToast("Please select a city first", "warning");
         return;
     }
 
+    forecastModal.style.display = 'flex';
+    document.getElementById('forecastStatus').innerText = 'Running Random Forest Model...';
+    document.getElementById('forecastTitle').innerText = `AI Forecast for ${selectedCity.name}`;
+
+    try {
+        // Fetch Forecast using city name directly
+        const res = await fetch(`${API_BASE_URL}/predict/forecast/${selectedCity.name}`);
+        const data = await res.json();
+
+        if (data.error) {
+            document.getElementById('forecastStatus').innerText = `Error: ${data.error}`;
+            return;
+        }
+
+        document.getElementById('forecastStatus').innerText = '';
+        renderForecastChart(data);
+
+    } catch (e) {
+        document.getElementById('forecastStatus').innerText = 'Failed to fetch forecast.';
+        console.error(e);
+    }
+});
+
+closeForecast.addEventListener('click', () => {
+    forecastModal.style.display = 'none';
+});
+
+function renderForecastChart(data) {
+    const ctx = document.getElementById('forecastChart').getContext('2d');
+
+    if (forecastChartInstance) {
+        forecastChartInstance.destroy();
+    }
+
+    forecastChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: data.labels,
+            datasets: [{
+                label: `Predicted ${data.gas.toUpperCase()} (Next 24h)`,
+                data: data.predictions,
+                borderColor: '#a78bfa',
+                backgroundColor: 'rgba(167, 139, 250, 0.2)',
+                borderWidth: 3,
+                fill: true,
+                tension: 0.4,
+                pointRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { labels: { color: 'white' } }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    grid: { color: 'rgba(255,255,255,0.1)' },
+                    ticks: { color: '#ccc' }
+                },
+                x: {
+                    grid: { display: false },
+                    ticks: { color: '#ccc' }
+                }
+            }
+        }
+    });
+}
+
+// Logic for simple point prediction
+els.predictBtn.addEventListener('click', async () => {
+    if (!selectedCity.lat || !selectedCity.lon) {
+        showToast("Please select a city first", "warning");
+        return;
+    }
+
+    const resultBox = document.getElementById('predictionResult');
     resultBox.style.display = 'block';
     resultBox.innerHTML = 'Calculating...';
 
@@ -439,8 +565,8 @@ els.predictBtn.addEventListener('click', async () => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                latitude: parseFloat(lat),
-                longitude: parseFloat(lon),
+                latitude: selectedCity.lat,
+                longitude: selectedCity.lon,
                 gas: currentGas
             })
         });
@@ -468,10 +594,31 @@ els.locateMeBtn.addEventListener('click', () => {
 
     navigator.geolocation.getCurrentPosition(
         (pos) => {
-            document.getElementById('latitude').value = pos.coords.latitude.toFixed(4);
-            document.getElementById('longitude').value = pos.coords.longitude.toFixed(4);
+            // Find nearest city from our list
+            const cities = Array.from(citySelector.options).slice(1); // Skip first "Choose city" option
+            let nearest = null;
+            let minDist = Infinity;
+
+            cities.forEach(option => {
+                const cityLat = parseFloat(option.dataset.lat);
+                const cityLon = parseFloat(option.dataset.lon);
+                const dist = Math.sqrt(
+                    Math.pow(pos.coords.latitude - cityLat, 2) +
+                    Math.pow(pos.coords.longitude - cityLon, 2)
+                );
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearest = option;
+                }
+            });
+
+            if (nearest) {
+                citySelector.value = nearest.value;
+                citySelector.dispatchEvent(new Event('change'));
+                showToast(`Nearest city: ${nearest.value}`, "success");
+            }
+
             els.locateMeBtn.innerText = "📍 Use My Location";
-            showToast("Location updated!", "success");
 
             // Re-center map optionally
             if (map) map.setView([pos.coords.latitude, pos.coords.longitude], 10);

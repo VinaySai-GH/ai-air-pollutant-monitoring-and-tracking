@@ -1,120 +1,156 @@
-# 🌍 AI AirAware Pro: Advanced Pollution Monitoring & Intelligence
+# 🌍 AI AirAware Pro
+### Advanced Pollution Monitoring & Intelligence Platform
 
-**AirAware Pro** is a sophisticated, full-stack environmental intelligence platform. It bridges the gap between raw environmental data and actionable public health insights by fusing ground-level sensor networks, satellite imagery, and high-resolution meteorological models.
+[![Status](https://img.shields.io/badge/Status-Active-success?style=for-the-badge)](/)
+[![Python](https://img.shields.io/badge/Python-3.11+-blue?style=for-the-badge&logo=python)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com)
+[![ML](https://img.shields.io/badge/ML-Scikit--Learn-orange?style=for-the-badge&logo=scikitlearn)](https://scikit-learn.org)
+[![Leaflet](https://img.shields.io/badge/Maps-Leaflet-199900?style=for-the-badge&logo=leaflet)](https://leafletjs.com)
 
-![Dashboard Preview](https://img.shields.io/badge/Status-Active-success?style=for-the-badge)
-![Python](https://img.shields.io/badge/Python-3.13-blue?style=for-the-badge&logo=python)
-![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?style=for-the-badge&logo=fastapi)
-![ML](https://img.shields.io/badge/Intelligence-Scikit--Learn-orange?style=for-the-badge&logo=scikitlearn)
-![Mapbox](https://img.shields.io/badge/Visuals-Mapbox-000000?style=for-the-badge&logo=mapbox)
-
----
-
-## 🌟 Vision & Impact (NSS Initiative)
-Developed as a **National Service Scheme (NSS)** flagship project, AirAware Pro aims to democratize air quality data. While traditional systems provide raw numbers, our platform provides **context**—helping citizens understand not just *what* the pollution levels are, but *why* they are changing and *how* to stay safe.
+> **Real-time air quality monitoring for India with AI-powered forecasting and intelligent insights.**
 
 ---
 
-## 🚀 Key Features in Detail
+## ✨ Key Features
 
-### 📊 1. Multi-Source Data Fusion
-Most systems rely on a single source. AirAware Pro aggregates data from:
-- **Ground Sensors (WAQI & OpenAQ)**: Real-time PM2.5 and PM10 readings from CPCB and international stations.
-- **Satellite Eyes (Sentinel-5P)**: Space-borne measurements of Columnar NO₂, SO₂, and CO for areas without ground sensors.
-- **Meteorological Data (ERA5)**: High-resolution wind vectors and precipitation data from the European Centre for Medium-Range Weather Forecasts (ECMWF).
-
-### 🧠 2. Deep Intelligence Engine
-The system doesn't just display data; it analyzes it:
-- **Hotspot Ranking**: Uses **K-Means Clustering** to automatically group cities into "High Impact Zones," allowing authorities to prioritize interventions.
-- **Predictive Modelling**: A **Random Forest Regressor** trained on historical records allows users to click anywhere on the map to get an AI-estimated pollution value for that coordinate.
-- **Trend Analysis**: Tracks the persistence of pollutants over time.
-
-### 🌬️ 3. Dynamic Pollution Tracking
-Our "Movement" engine uses live wind data to calculate:
-- **Dispersion Vectors**: Visualizes where pollution is likely to drift in the next 3-6 hours.
-- **Stagnation Alerts**: Identifies regions with low wind speeds where pollutants are likely to accumulate to dangerous levels.
-- **Washout Effects**: Detects active rainfall and calculates its impact on clearing particulate matter (PM2.5).
-
-### 💬 4. Groq-Powered AI Scientist
-Integrated with the **Llama 3 (70B) model via Groq**, our "Air Scientist" isn't a generic chatbot. It has **real-time context** of your local air quality and provide:
-- Hyper-local health advice (e.g., "High NO2 detected near you; avoid cardio outdoors today").
-- Technical explanations of AQI dynamics.
-- Data-driven summaries of regional trends.
+| Feature | Description | Technology |
+|---------|-------------|------------|
+| 🗺️ **Interactive Map** | Color-coded pollution markers across India | Leaflet + Heatmap |
+| 🔥 **Hotspot Detection** | AI identifies top 5 pollution clusters | K-Means Clustering |
+| 📈 **City-Specific Forecast** | 24-hour predictions with unique city baselines | Random Forest |
+| 🤖 **Smart Chatbot** | Context-aware answers about air quality | RAG + Llama 3.3 (Groq) |
+| 🌡️ **Multi-Gas Support** | PM2.5, PM10, NO2, SO2, O3, CO | Real-time API data |
+| 🌬️ **Wind Tracking** | See pollution movement arrows | ERA5 Weather Data |
+| 🌙 **Day/Night Mode** | Toggle between dark & light themes | CSS Theme Switcher |
 
 ---
 
-## 🏗️ System Architecture
+## 🚀 Quick Start
 
-```mermaid
-graph TD
-    subgraph "Data Acquisition Layer"
-        AQ[OpenAQ SDK] 
-        WQ[WAQI API]
-        GEE[Google Earth Engine]
-        MET[ERA5 Weather]
-    end
-
-    subgraph "Processing & ML Engine"
-        P[Pipeline Orchestrator] --> CSV[(Central Data Lake)]
-        CSV --> RF[Random Forest Predictor]
-        CSV --> KM[K-Means Hotspot Clusterer]
-        CSV --> WT[Wind Tracking Engine]
-    end
-
-    subgraph "API & Intelligence"
-        API[FastAPI Backend] --> GS[Groq AI Scientist]
-        API --> WRN[Warning & Alert System]
-    end
-
-    subgraph "User Interface"
-        UI[Glassmorphism Dashboard] --> MAP[Mapbox Heatmap]
-        UI --> CHT[Interactive Charts]
-        UI --> BOT[AI Chat Interface]
-    end
-
-    AQ & WQ & GEE & MET --> P
-    RF & KM & WT --> API
-    API --> UI
-```
-
----
-
-## ⚙️ Installation & Usage
-
-### 1. Requirements
-- **Python 3.13+**
-- Active API keys for Mapbox, WAQI, OpenAQ, and Groq.
-
-### 2. Environment Setup
-Create a `.env` file in the root directory:
-```env
-MAPBOX_ACCESS_TOKEN=your_token
-WAQI_API_TOKEN=your_token
-OPENAQ_API_KEY=your_key
-GROQ_API_KEY=your_key
-```
-
-### 3. Execution Flow
+### 1. Clone & Install
 ```bash
-# Install dependencies
+git clone https://github.com/your-repo/ai-air-pollution-monitoring.git
+cd ai-air-pollution-monitoring
 pip install -r requirements.txt
+```
 
-# Step 1: Initialize the data pipeline (Fetches & Merges all sources)
+### 2. Configure API Keys
+Create a `.env` file:
+```env
+WAQI_API_TOKEN=your_waqi_token
+GROQ_API_KEY=your_groq_key
+# Optional
+OPENAQ_API_KEY=your_openaq_key
+```
+
+### 3. Fetch Data & Run
+```bash
+# Fetch latest pollution data
 python src/data_collection/fetch_all_gases.py
 
-# Step 2: Start the high-performance backend
+# Start the server
 python api/main.py
 ```
 
----
-
-## 📂 Repository Roadmap
-
-- `api/`: RESTful endpoints for real-time data, ML predictions, and AI chat.
-- `src/models/`: Implementation of Scikit-Learn pipelines for hotspot detection and prediction.
-- `src/data_collection/`: Robust multi-threaded fetchers for environmental data.
-- `dashboard/`: A premium, responsive UI featuring modern glassmorphism and real-time Mapbox layers.
-- `docs/`: In-depth documentation on methodology and data sourcing.
+### 4. Open Dashboard
+Navigate to `http://localhost:8000` or open `dashboard/index.html`
 
 ---
-**Developed by Vinay Sai** | *Advancing Environmental Intelligence for a Greener India*
+
+## 🧠 AI/ML Components
+
+### 1. K-Means Clustering (Hotspot Detection)
+- **Input:** [lat, lon, pollution_value] for 1000+ stations
+- **Output:** Top 5 high-pollution clusters ranked by severity
+- **Use Case:** Identify pollution hotspots for intervention
+
+### 2. Random Forest (City-Specific Forecast)
+- **Features:** Hour of day, city baseline, metro/industrial patterns
+- **Output:** 24-hour PM2.5 predictions per city
+- **City Baselines:** Delhi ~180, Mumbai ~95, Bangalore ~65 µg/m³
+
+### 3. RAG + LLM (AI Chatbot)
+- **Architecture:** Real-time data → Prompt injection → Llama 3.3 70B
+- **Capability:** Context-aware answers about local air quality
+
+---
+
+## 📁 Project Structure
+
+```
+ai-air-pollution-monitoring/
+├── api/
+│   └── main.py              # FastAPI backend (all endpoints)
+├── dashboard/
+│   ├── index.html           # Main UI
+│   ├── script.js            # Frontend logic
+│   └── style.css            # Glassmorphism + Day/Night themes
+├── src/
+│   ├── data_collection/     # Data fetchers (WAQI, OpenAQ, Satellite)
+│   ├── models/
+│   │   ├── hotspot_detection.py  # K-Means + IDW Predictor
+│   │   └── forecasting.py        # City-Specific Forecaster
+│   └── utils/               # Config files
+├── data/raw/                # Downloaded CSV data
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## 🔌 API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Health check + supported gases |
+| `/data/recent` | GET | Latest pollution readings |
+| `/stats` | GET | Aggregated statistics |
+| `/hotspots` | GET | Top pollution clusters |
+| `/predict/forecast/{city}` | GET | 24-hour city forecast |
+| `/chatbot` | POST | AI assistant |
+| `/tracking` | GET | Wind direction data |
+| `/warnings` | GET | Pollution alerts |
+
+---
+
+## 📊 Data Sources
+
+| Source | Data Type | Coverage |
+|--------|-----------|----------|
+| **WAQI** | Real-time AQI | Global (India focus) |
+| **OpenAQ** | Historical PM2.5/PM10 | 150+ countries |
+| **ERA5** | Wind, Precipitation | Global meteorological |
+| **Sentinel-5P** | NO2, SO2 columns | Satellite-based |
+
+---
+
+## 🎨 Dashboard Features
+
+- **🌙 Day/Night Toggle** - Click moon icon (top-right) to switch themes
+- **🔥 Heatmap Toggle** - Visualize pollution intensity
+- **↗️ Wind Arrows** - Show pollution movement direction
+- **📊 City Selector** - 15 major Indian cities with coordinates
+- **💬 AI Chatbot** - Click chat bubble for natural language queries
+
+---
+
+## 🛠️ Tech Stack
+
+**Backend:** FastAPI, Uvicorn, Python 3.11+  
+**ML/AI:** Scikit-Learn, NumPy, Pandas  
+**LLM:** Groq API (Llama 3.3 70B)  
+**Frontend:** HTML5, CSS3, JavaScript, Leaflet, Chart.js  
+**Data:** WAQI, OpenAQ, ERA5, Google Earth Engine
+
+---
+
+## 👤 Author
+
+**Vinay Sai**  
+*Advancing Environmental Intelligence for a Greener India* 🇮🇳
+
+---
+
+## 📄 License
+
+MIT License - Feel free to use and modify for your projects.

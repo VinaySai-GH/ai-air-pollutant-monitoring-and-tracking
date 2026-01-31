@@ -14,6 +14,9 @@
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <!-- Leaflet Heatmap Plugin -->
     <script src="https://leaflet.github.io/Leaflet.heat/dist/leaflet-heat.js"></script>
+
+    <!-- Chart.js for AI Forecasting -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
 <body>
@@ -76,6 +79,10 @@
 
         <!-- Main Dashboard -->
         <main class="main-content">
+            <!-- Theme Toggle Button (Top Right) -->
+            <button id="toggleThemeBtn" class="theme-toggle-btn" title="Toggle Day/Night Mode">
+                🌙
+            </button>
             <!-- Top Stats Deck -->
             <div class="stats-row">
                 <div class="stat-card">
@@ -134,38 +141,74 @@
             <div class="lower-deck">
                 <!-- AI Prediction Panel -->
                 <div class="panel">
-                    <div
-                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                        <h2 style="margin: 0;">🤖 AI Forecaster</h2>
-                        <button id="locateMeBtn" class="btn btn-secondary"
-                            style="width: auto; padding: 6px 12px; font-size: 0.75rem;">
-                            📍 Use My Location
-                        </button>
-                    </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-                        <input type="number" id="latitude" class="custom-select" placeholder="Lat (e.g. 28.61)"
-                            step="0.0001">
-                        <input type="number" id="longitude" class="custom-select" placeholder="Lon (e.g. 77.21)"
-                            step="0.0001">
-                    </div>
-                    <button id="predictBtn" class="btn btn-primary" style="margin-top: 16px;">
-                        Predict Pollution Level
-                    </button>
-                    <div id="predictionResult"
-                        style="margin-top: 16px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; display: none;">
-                        <!-- Result injected here -->
-                    </div>
-                </div>
+                    <h2>🤖 AI Forecaster</h2>
+                    <div class="glass-card" style="margin-bottom: 20px;">
+                        <h3 style="font-size: 1.1rem; margin-bottom: 16px;">Select Indian City</h3>
 
-                <!-- Hotspots Panel -->
-                <div class="panel">
-                    <h2>🚨 Top Hotspots</h2>
-                    <div id="hotspotsList" style="display: flex; flex-direction: column; gap: 10px;">
-                        <!-- JS injected hotspots -->
-                        <div style="color: var(--text-muted); font-size: 0.9rem;">Loading hotspots...</div>
+                        <select id="citySelector" class="custom-select" style="margin-bottom: 14px;">
+                            <option value="">-- Choose a city --</option>
+                            <option value="Delhi" data-lat="28.6139" data-lon="77.2090">Delhi</option>
+                            <option value="Mumbai" data-lat="19.0760" data-lon="72.8777">Mumbai</option>
+                            <option value="Bangalore" data-lat="12.9716" data-lon="77.5946">Bangalore</option>
+                            <option value="Chennai" data-lat="13.0827" data-lon="80.2707">Chennai</option>
+                            <option value="Kolkata" data-lat="22.5726" data-lon="88.3639">Kolkata</option>
+                            <option value="Hyderabad" data-lat="17.3850" data-lon="78.4867">Hyderabad</option>
+                            <option value="Pune" data-lat="18.5204" data-lon="73.8567">Pune</option>
+                            <option value="Ahmedabad" data-lat="23.0225" data-lon="72.5714">Ahmedabad</option>
+                            <option value="Jaipur" data-lat="26.9124" data-lon="75.7873">Jaipur</option>
+                            <option value="Lucknow" data-lat="26.8467" data-lon="80.9462">Lucknow</option>
+                            <option value="Kanpur" data-lat="26.4499" data-lon="80.3319">Kanpur</option>
+                            <option value="Nagpur" data-lat="21.1458" data-lon="79.0882">Nagpur</option>
+                            <option value="Visakhapatnam" data-lat="17.6868" data-lon="83.2185">Visakhapatnam</option>
+                            <option value="Bhopal" data-lat="23.2599" data-lon="77.4126">Bhopal</option>
+                            <option value="Patna" data-lat="25.5941" data-lon="85.1376">Patna</option>
+                        </select>
+
+                        <div style="display:flex; gap:10px; margin-bottom: 10px;">
+                            <button class="btn btn-primary" id="locateMeBtn" style="flex:1">📍 Use My Location</button>
+                        </div>
+
+                        <div style="font-size: 0.8rem; color: var(--text-muted); text-align: center; margin-bottom: 10px;"
+                            id="selectedCoords">
+                            Select a city to see coordinates
+                        </div>
+
+                        <div style="display:flex; gap:10px;">
+                            <button class="btn btn-secondary" id="predictBtn" style="flex:1">Predict Now</button>
+                            <button class="btn btn-primary" id="forecastBtn"
+                                style="flex:1; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">Stats
+                                & Forecast 📈</button>
+                        </div>
+
+                        <div id="predictionResult"
+                            style="margin-top:10px; padding:10px; background:rgba(0,0,0,0.2); border-radius:8px; display:none; text-align:center;">
+                            <!-- Result here -->
+                        </div>
+                    </div> <!-- End AI Forecaster Panel -->
+
+                    <!-- Forecast Modal (Hidden) -->
+                    <div id="forecastModal"
+                        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; justify-content:center; align-items:center;">
+                        <div class="glass-card" style="width:90%; max-width:800px; padding:20px; position:relative;">
+                            <button id="closeForecast"
+                                style="position:absolute; top:15px; right:15px; background:none; border:none; color:white; font-size:1.5rem; cursor:pointer;">&times;</button>
+                            <h2 id="forecastTitle" style="margin-bottom:20px;">AI Forecast</h2>
+                            <canvas id="forecastChart"></canvas>
+                            <div id="forecastStatus" style="text-align:center; margin-top:10px; color:#aaa;">
+                                Loading...
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </div>
+
+                    <!-- Hotspots Panel -->
+                    <div class="panel">
+                        <h2>🚨 Top Hotspots</h2>
+                        <div id="hotspotsList" style="display: flex; flex-direction: column; gap: 10px;">
+                            <!-- JS injected hotspots -->
+                            <div style="color: var(--text-muted); font-size: 0.9rem;">Loading hotspots...</div>
+                        </div>
+                    </div>
+                </div> <!-- End Lower Deck -->
         </main>
     </div>
 

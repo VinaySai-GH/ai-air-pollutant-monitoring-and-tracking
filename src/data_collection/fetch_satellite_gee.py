@@ -10,7 +10,7 @@ import ee
 import pandas as pd
 import numpy as np
 
-from src.utils.gas_config import AREA_OF_INTEREST, RAW_DATA_DIR, GAS_UNITS
+from src.utils.gas_config import WAQI_BOUNDS, RAW_DATA_DIR, GAS_UNITS
 
 
 # ===============================
@@ -62,7 +62,7 @@ def fetch_sentinel5p_grid(
     end_date = datetime.now(UTC)
     start_date = end_date - timedelta(days=days_back)
 
-    grid = create_grid(AREA_OF_INTEREST, num_points or 25)
+    grid = create_grid(WAQI_BOUNDS, num_points or 25)
 
     dataset_map = {
         "no2": ("COPERNICUS/S5P/OFFL/L3_NO2", "NO2_column_number_density"),
@@ -135,7 +135,7 @@ def fetch_modis_aod(
     end_date = datetime.now(UTC)
     start_date = end_date - timedelta(days=months_back * 30)
 
-    grid = create_grid(AREA_OF_INTEREST, num_points or 25)
+    grid = create_grid(WAQI_BOUNDS, num_points or 25)
 
     collection = (
         ee.ImageCollection("MODIS/061/MOD08_M3")

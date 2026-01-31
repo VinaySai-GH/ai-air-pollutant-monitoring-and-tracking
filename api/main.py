@@ -127,6 +127,7 @@ except ImportError:
 # Import ML models
 try:
     from src.models.hotspot_detection import HotspotDetector, PollutionPredictor, get_ranked_warnings
+    from src.models.forecasting import PollutionForecaster
     HAS_ML = True
 except ImportError:
     print("[WARN] ML models not available")
@@ -293,8 +294,11 @@ def load_data() -> Optional[pd.DataFrame]:
         return None
     
     try:
-        df = pd.read_csv(data_file)
+        df = pd.read_csv(data_file, parse_dates=['date'])
         df['parameter'] = df['parameter'].str.lower()
+        # Ensure date is datetime
+        if 'date' in df.columns:
+            df['date'] = pd.to_datetime(df['date'], errors='coerce')
         return df
     except Exception as e:
         print(f"[ERROR] Failed to load data: {e}")
@@ -489,10 +493,14 @@ def get_recent_data(gas: str = "pm25", limit: int = 500):
         return []
     
     if 'date' in gas_df.columns:
-        gas_df['date'] = pd.to_datetime(gas_df['date'])
+        gas_df['date'] = pd.to_datetime(gas_df['date'], errors='coerce', format='mixed')
+        gas_df = gas_df.dropna(subset=['date'])
         gas_df = gas_df.sort_values('date', ascending=False)
     
     gas_df = gas_df.head(limit)
+    
+    # FILTER: Remove Unknown locations (as requested)
+    gas_df = gas_df[gas_df['location'] != 'Unknown']
     
     result = []
     for _, row in gas_df.iterrows():
@@ -502,7 +510,7 @@ def get_recent_data(gas: str = "pm25", limit: int = 500):
             longitude=float(row['longitude']),
             value=float(row['value']),
             parameter=row['parameter'],
-            location=row.get('location', 'Unknown'),
+            location=row['location'] if pd.notna(row.get('location')) else 'Unknown',
             color=get_color_for_value(gas.lower(), row['value']),
             category=get_category_for_value(gas.lower(), row['value']),
         ))
@@ -516,12 +524,17 @@ def get_recent_data(gas: str = "pm25", limit: int = 500):
 @app.get("/hotspots", response_model=List[HotspotLocation])
 def get_hotspots(gas: str = "pm25", top_n: int = 10):
     """Get pollution hotspots"""
-    df = load_data()
-    
-    if df is None or not HAS_ML:
+    if not HAS_ML:
         return []
-    
+        
     try:
+        df = load_data()
+        if df is None or df.empty:
+            return []
+        
+        # FILTER: Remove Unknown locations
+        df = df[df['location'] != 'Unknown']
+        
         detector = HotspotDetector(method='kmeans', n_clusters=15)
         hotspots = detector.detect_hotspots(df, parameter=gas.lower())
         
@@ -583,6 +596,27 @@ def predict_pollution(request: PredictionRequest):
         )
         
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/predict/forecast/{city_name}")
+def get_forecast(city_name: str):
+    """Get 24-hour pollution forecast for a city"""
+    df = load_data()
+    
+    if df is None:
+        raise HTTPException(status_code=503, detail="No data available")
+        
+    try:
+        forecaster = PollutionForecaster()
+        result = forecaster.predict_next_24h(df, city=city_name)
+        
+        if not result:
+            return {"error": f"Not enough data to forecast for {city_name}"}
+            
+        return result
+        
+    except Exception as e:
+        print(f"[ERROR] Forecast failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
